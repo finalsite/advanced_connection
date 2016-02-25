@@ -4,22 +4,46 @@ $:.push File.expand_path("../lib", __FILE__)
 require "advanced_connection/version"
 
 # Describe your gem and declare its dependencies:
-Gem::Specification.new do |s|
-  s.name        = "advanced_connection"
-  s.version     = AdvancedConnection::VERSION
-  s.authors     = ["Carl P. Corliss"]
-  s.email       = ["rabbitt@gmail.com"]
-  s.homepage    = "TODO"
-  s.summary     = "TODO: Summary of AdvancedConnection."
-  s.description = "TODO: Description of AdvancedConnection."
-  s.license     = "MIT"
+Gem::Specification.new do |spec|
+  spec.name        = "advanced_connection"
+  spec.version     = AdvancedConnection::VERSION
+  spec.authors     = ["Carl P. Corliss"]
+  spec.email       = ["rabbitt@gmail.com"]
+  spec.homepage    = "https://github.com/finalsite/advanced_connection"
+  spec.summary     = "TODO: Summary of AdvancedConnection."
+  spec.description = "TODO: Description of AdvancedConnection."
+  spec.license     = "LGPL"
 
-  s.files = Dir["{app,config,db,lib}/**/*", "MIT-LICENSE", "Rakefile", "README.rdoc"]
-  s.test_files = Dir["test/**/*"]
+  spec.files = `git ls-files`.split($/)
+  spec.test_files = spec.files.grep(%r{^(test|spec|features)/})
+  spec.require_paths = ["lib"]
 
-  s.add_dependency "rails", "~> 4.2.5.1"
+  # eventually support this:
+  # spec.required_engine_version = {
+  #   :ruby     => '~> 2.0',
+  #   :jruby    => '~> 1.7.24',
+  # }
 
-  s.add_development_dependency "activerecord"
-  s.add_development_dependency "activerecord-jdbcpostgresql-adapter"
-  s.add_development_dependency "rspec"
+  spec.add_runtime_dependency "rails",         ">= 4.1.0", "< 5.0"
+  spec.add_runtime_dependency "activerecord",  ">= 4.1.0", "< 5.0"
+  spec.add_runtime_dependency "activesupport", ">= 4.1.0", "< 5.0"
+
+  spec.add_development_dependency "rake"
+  spec.add_development_dependency "rack"
+  spec.add_development_dependency "rspec", "~> 3.4.0"
+  spec.add_development_dependency "rspec-its"
+  spec.add_development_dependency "rspec-collection_matchers"
+
+  # optional dependencies
+  if RUBY_ENGINE == 'jruby'
+    spec.add_development_dependency "activerecord-jdbcpostgresql-adapter", "~> 1.3.10"
+  else
+    spec.add_development_dependency "pg", "~> 0.18.4"
+    spec.add_development_dependency "pry"
+    spec.add_development_dependency "pry-nav"
+  end
+
+
+  spec.add_development_dependency "guard-rspec"
+  spec.add_development_dependency "coveralls"
 end

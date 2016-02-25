@@ -36,17 +36,12 @@ module AdvancedConnection
     end
 
     def method_missing(method, *args, &block)
-      if method.to_s.include?('=')
-        config[method.to_s.tr('=', '')] = args.first
-      elsif config.include? method
-        config[method]
-      else
-        super
-      end
+      return super unless config.respond_to? method
+      config.public_send(method, *args, &block)
     end
 
     def respond_to_missing?(method, include_private = false)
-      config.include?(method) || super
+      config.respond_to?(method) || super
     end
   end
 

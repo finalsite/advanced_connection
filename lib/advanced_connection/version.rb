@@ -1,4 +1,3 @@
-
 module AdvancedConnection
   MAJOR = 0
   MINOR = 0

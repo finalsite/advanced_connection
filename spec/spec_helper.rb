@@ -12,6 +12,9 @@ require "rails/test_help"
 # to be shown.
 # Minitest.backtrace_filter = Minitest::BacktraceFilter.new
 
+ActiveRecord::Base.configurations = YAML.load_file(File.join(File.dirname(__FILE__), 'config/database.yml'))
+ActiveRecord::Base.establish_connection(:test)
+
 # Load support files
 Dir["#{File.dirname(__FILE__)}/support/**/*.rb"].each { |f| require f }
 

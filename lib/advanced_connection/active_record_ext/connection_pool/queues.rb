@@ -1,37 +1,36 @@
 module AdvancedConnection::ActiveRecordExt
   module ConnectionPool
     module Queues
-      extend ActiveSupport::Concern
+      class Default < ActiveRecord::ConnectionAdapters::ConnectionPool::Queue
+        def size
+          synchronize { @queue.size }
+        end
+      end
 
-      included do
-        class AdvancedQueue < ActiveRecord::ConnectionAdapters::ConnectionPool::Queue; end
+      class Stack < Default
+        def remove
+          @queue.pop
+        end
+      end
 
-        class FifoQueue < AdvancedQueue; end
-        class LifoQueue < AdvancedQueue
-          def remove
-            @queue.pop
+      class AgeSorted < Default
+        def poll(timeout = nil)
+          synchronize do
+            @queue.sort_by!(&:instance_age)
+            no_wait_poll || (timeout && wait_poll(timeout))
           end
         end
+      end
 
-        class AgeSortedQueue < AdvancedQueue
-          def poll(timeout = nil)
-            synchronize do
-              @queue.sort_by!(&:instance_age)
-              no_wait_poll || (timeout && wait_poll(timeout))
-            end
-          end
+      class YoungAgeBiased < AgeSorted
+        def remove
+          @queue.pop
         end
+      end
 
-        class YoungAgeBiasedQueue < AgeSortedQueue
-          def remove
-            @queue.pop
-          end
-        end
-
-        class OldAgeBiasedQueue < AgeSortedQueue
-          def remove
-            @queue.shift
-          end
+      class OldAgeBiased < AgeSorted
+        def remove
+          @queue.shift
         end
       end
     end

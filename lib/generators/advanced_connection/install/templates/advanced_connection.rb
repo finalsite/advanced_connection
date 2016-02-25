@@ -2,27 +2,51 @@
 # Advanced Connection Configuration
 #
 AdvancedConnection.configure do |config|
-  # config.transaction_encapsulation = false
+  # config.enable_without_connection      = <%= AdvancedConnection::Config::DEFAULT_CONFIG.enable_without_connection.inspect %>
+  # config.enable_statement_pooling       = <%= AdvancedConnection::Config::DEFAULT_CONFIG.enable_statement_pooling.inspect %>
+  # config.enable_idle_connection_manager = <%= AdvancedConnection::Config::DEFAULT_CONFIG.enable_idle_connection_manager.inspect %>
 
-  # config.idle_connection_reaping = true
+  # config.connection_pool_queue_type     = <%= AdvancedConnection::Config::DEFAULT_CONFIG.connection_pool_queue_type.inspect %>
+  # config.prestart_connections           = <%= AdvancedConnection::Config::DEFAULT_CONFIG.prestart_connections.inspect %>
+  # config.min_idle_connections           = <%= AdvancedConnection::Config::DEFAULT_CONFIG.min_idle_connections.inspect %>
+  # config.max_idle_connections           = ::Float::INFINITY
+  # config.max_idle_time                  = 1.day
 
-  # config.pool_warmup = false
-  # config.pool_queue_type = :fifo
-
-  # config.without_connection_callbacks     = {
+  # config.without_connection_callbacks = {
   #   # runs right before the connection is checked back into the pool
-  #   before_checkin:  ->() {
-  #     if defined? Apartment
-  #       Thread.current[:tenant] = Apartment::Tenant.current
-  #     end
+  #   before:  ->() { },
+  #   around:  ->(&block) {
+  #     tenant = Apartment::Tenant.current
+  #     block.call
+  #     Apartment::Tenant.switch(tenant)
   #   },
-  #   # runs right after the connection is checked back into the pool
-  #   after_checkin:   ->() { },
-  #   # runs right before the new connection is checked out from the pool
-  #   before_checkout: ->() { },
-  #   # runs right after the new connection is checked out from the pool
-  #   after_checkout:  ->() {
-  #     if defined?(Apartment) && Thread.current.include? :tenant
+  #   # runs right after the connection is checked back out of the pool
+  #   after:  ->() { }
+  # }
+  #
+  # If you are using this with Apartment, you'll want to setup your Apartment
+  # elevator like so:
+  #
+  # lib/apartment/elevators/my_elevator.rb:
+  # module Apartment::Elevators
+  #   class MyElevator < Generic
+  #     def call(env)
+  #       Thread.current['tenant'] = @processor.call(Rack::Request.new(env))
+  #       super
+  #     ensure
+  #       Thread.current['tenant'] = nil
+  #       Apartment::Tenant.reset
+  #     end
+  #   end
+  #   . . .
+  # end
+  #
+  # and then set your statement_pooling_callbacks like so:
+  #
+  # config.statement_pooling_callbacks = {
+  #   # switch back to the stored tenant prior to executing sql
+  #   before:  ->() {
+  #     if Thread.current[:tenant]
   #       Apartment::Tenant.switch(Thread.current[:tenant])
   #     end
   #   }

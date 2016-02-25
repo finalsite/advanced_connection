@@ -1,6 +1,3 @@
-require 'active_record/connection_adapters/abstract/connection_pool'
-require 'hirb'
-
 module AdvancedConnection::ActiveRecordExt
   module ConnectionPool
     module IdleManager
@@ -37,25 +34,25 @@ module AdvancedConnection::ActiveRecordExt
       def initialize_with_advanced_connection(spec)
         initialize_without_advanced_connection(spec)
 
-        @available  = case pool_queue_type
+        @available  = case queue_type
           when :prefer_older then
-            ConnectionPool::OldAgeBiasedQueue.new
+            Queues::OldAgeBiased.new
           when :prefer_younger then
-            ActiveRecord::ConnectionAdapters::ConnectionPool::YoungAgeBiasedQueue.new
+            Queues::YoungAgeBiased.new
           when :lifo then
-            ActiveRecord::ConnectionAdapters::ConnectionPool::LifoQueue.new
+            Queues::Stack.new
           else
-            ActiveRecord::ConnectionAdapters::ConnectionPool::FifoQueue.new
+            Queues::Default.new
         end
 
-        if AdvancedConnection.idle_connection_reaping
+        if AdvancedConnection.enable_idle_connection_manager
           @idle_manager = IdleManager.new(self).tap { |m| m.run }
         end
       end
 
-      def pool_queue_type
-        @pool_queue_type ||= begin
-          type = spec.config.fetch(:pool_queue_type,
+      def queue_type
+        @queue_type ||= begin
+          type = spec.config.fetch(:queue_type,
             AdvancedConnection.connection_pool_queue_type)
           type.to_s.downcase.to_sym
         end
@@ -63,25 +60,31 @@ module AdvancedConnection::ActiveRecordExt
 
       def prestart_connection_count
         @prestart_connection_count ||= begin
-          conns = spec.config[:prestart_connections] || AdvancedConnection.connection_pool_prestart
+          conns = spec.config[:prestart_connections] || AdvancedConnection.prestart_connections
           conns.to_i > connection_limit ? connection_limit : conns.to_i
-        end || AdvancedConnection.connection_pool_prestart
+        end || AdvancedConnection.prestart_connections.to_i
       end
 
       def max_idle_time
-        @max_idle_time ||= spec.config[:max_idle_time].to_i
+        @max_idle_time ||= begin
+          (spec.config[:max_idle_time] || AdvancedConnection.max_idle_time).to_i
+        end
       end
 
       def max_idle_connections
         @max_idle_connections ||= begin
-          (idle = spec.config[:max_idle_connections].to_i) > 0 ? idle : 1
+          (spec.config[:max_idle_connections] || AdvancedConnection.max_idle_connections).to_i
+        rescue FloatDomainError => e
+          raise unless e.message =~ /infinity/i
+          ::Float::INFINITY
         end
       end
 
       def min_idle_connections
         @min_idle_connections ||= begin
-          min = ((idle = spec.config[:min_idle_connections].to_i) > 0 ? idle : 0)
-          min <= max_idle_connections ? min : max_idle_connections
+          min_idle = (spec.config[:min_idle_connections] || AdvancedConnection.min_idle_connections).to_i
+          min_idle = (min_idle > 0 ? min_idle : 0)
+          min_idle <= max_idle_connections ? min_idle : max_idle_connections
         end
       end
 
@@ -95,7 +98,19 @@ module AdvancedConnection::ActiveRecordExt
       end
 
       def active_connections
-        @connections.select { |conn| conn.in_use? }
+        synchronize do
+          @connections.select { |conn| conn.in_use? }
+        end
+      end
+
+      def pool_statistics
+        synchronize do
+          ActiveSupport::OrderedOptions.new.merge({
+            total: @connections.size,
+            reserved: @connections.count(&:in_use?),
+            available: @connections.count {|conn| !conn.in_use? }
+          })
+        end
       end
 
       def idle_connections
@@ -103,7 +118,7 @@ module AdvancedConnection::ActiveRecordExt
           @connections.select do |conn|
             !conn.in_use? && (Time.now - conn.last_checked_in).to_i > max_idle_time
           end.sort { |a,b|
-            case pool_queue_type
+            case queue_type
               when :prefer_younger then
                 # when prefering younger, we sort oldest->youngest
                 # this ensures that older connections will be culled
@@ -126,7 +141,8 @@ module AdvancedConnection::ActiveRecordExt
         end
       end
 
-      def prestart(count)
+      def prestart(count = nil)
+        count ||= prestart_connection_count
         synchronize do
           slots = connection_limit - @connections.size
           count = slots if slots < count

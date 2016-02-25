@@ -4,28 +4,76 @@ module AdvancedConnection
   class Config
     include Singleton
 
-    VALID_QUEUE_TYPES = [ :fifo, :lifo, :prefer_younger, :prefer_older ]
+    VALID_QUEUE_TYPES = [
+      :fifo, :lifo, :prefer_younger, :prefer_older
+    ].freeze unless defined? VALID_QUEUE_TYPES
 
-    def initialize
-      @loaded = false
-      @config = {
-        :transaction_encapsulation    => false,
-        :idle_connection_reaping      => false,
-        :connection_pool_prestart     => false,
-        :connection_pool_queue_type   => :fifo,
-        :without_connection_callbacks => {}.with_indifferent_access
-      }.with_indifferent_access
-    end
+    CALLBACK_TYPES = ActiveSupport::OrderedOptions.new.merge({
+      before: nil,
+      around: nil,
+      after: nil
+    }).freeze unless defined? CALLBACK_TYPES
+
+    DEFAULT_CONFIG = ActiveSupport::OrderedOptions.new.merge({
+      :enable_without_connection      => false,
+      :enable_statement_pooling       => false,
+      :enable_idle_connection_manager => false,
+      :connection_pool_queue_type     => :fifo,
+      :prestart_connections           => false,
+      :min_idle_connections           => 0,
+      :max_idle_connections           => ::Float::INFINITY,
+      :max_idle_time                  => 1.day,
+      :callbacks                      => ActiveSupport::OrderedOptions.new
+    }).freeze unless defined? DEFAULT_CONFIG
 
     class << self
       def method_missing(method, *args, &block)
-        return super unless instance.respond_to? method
+        return super unless instance.include?(method) || instance.respond_to?(method)
         instance.public_send(method, *args, &block)
       end
 
       def respond_to_missing?(method, include_private = false)
         instance.respond_to?(method) || super
       end
+
+      def include?(key)
+        instance.include?(key) || super
+      end
+
+      def add_callback(*names)
+        Array(names).flatten.each { |name|
+          class_eval(<<-EOS, __FILE__, __LINE__ + 1)
+            def #{name}_callbacks
+              @config.callbacks.#{name} ||= CALLBACK_TYPES.dup
+            end
+
+            def #{name}_callbacks=(value)
+              if not value.is_a? Hash
+                fail Error::ConfigError, "#{name} callbacks must be a hash"
+              elsif (bad_options = (value.keys.collect(&:to_sym) - CALLBACK_TYPES.keys)).size > 0
+                plural = bad_options .size > 1 ? 's' : ''
+                fail Error::ConfigError, "Unexpected callback option\#{plural}: " \
+                                         " `\#{bad_options.join('`, `')}`"
+              elsif (uncallable = value.select { |k,v| !v.respond_to? :call }).present?
+                plural = uncallable.size > 1 ? 's' : ''
+                fail Error::ConfigError, "Expected #{name} callback\#{plural}" \
+                                         " `\#{uncallable.keys.join('`, `')}` to be callable"
+              end
+
+              @config.callbacks.#{name} = CALLBACK_TYPES.merge(value)
+            end
+          EOS
+          DEFAULT_CONFIG.callbacks[name.to_sym] = CALLBACK_TYPES.dup
+        }
+      end
+      alias_method :add_callbacks, :add_callback
+    end
+
+    add_callbacks :without_connection, :statement_pooling
+
+    def initialize
+      @loaded = false
+      @config = DEFAULT_CONFIG.deep_dup
     end
 
     def loaded!
@@ -41,48 +89,107 @@ module AdvancedConnection
     end
 
     def []=(key, value)
-      public_send("#{key}=", value)
+      public_send("#{key}=".to_sym, value)
     end
 
     def include?(key)
-      @config.include? key.to_s.tr('=', '')
+      @config.include? key.to_s.tr('=', '').to_sym
     end
 
     def to_h
       @config.dup
     end
 
-    def transaction_encapsulation
-      @config[:transaction_encapsulation]
+    def callbacks
+      @config.callbacks
     end
 
-    def transaction_encapsulation=(value)
-      @config[:transaction_encapsulation] = !!value
+    def enable_without_connection
+      @config[:enable_without_connection]
     end
 
-    def idle_connection_reaping
-      @config[:idle_connection_reaping]
+    def enable_without_connection=(value)
+      if enable_statement_pooling && !!value
+        raise Error::ConfigError, "WithoutConnection blocks conflict with Statement Pooling feature"
+      end
+      @config[:enable_without_connection] = !!value
     end
 
-    def idle_connection_reaping=(value)
-      @config[:idle_connection_reaping] = !!value
+    def enable_statement_pooling
+      @config[:enable_statement_pooling]
     end
 
-    def connection_pool_prestart
-      @config[:connection_pool_prestart]
+    def enable_statement_pooling=(value)
+      if enable_without_connection && !!value
+        raise Error::ConfigError, "Statement Pooling conflicts with WithoutConnection feature"
+      end
+      @config[:enable_statement_pooling] = !!value
     end
 
-    def connection_pool_prestart=(value)
+    def enable_idle_connection_manager
+      @config[:enable_idle_connection_manager]
+    end
+
+    def enable_idle_connection_manager=(value)
+      @config[:enable_idle_connection_manager] = !!value
+    end
+
+    def prestart_connections
+      @config[:prestart_connections]
+    end
+
+    def prestart_connections=(value)
       unless value.nil? || value === false || value.is_a?(Fixnum) || value =~ /^\d+$/
-        raise ConfigError, 'Expected connection_pool_prestart to be nil, false ' \
+        fail Error::ConfigError, 'Expected prestart_connections to be nil, false ' \
                            "or a valid positive integer, but found `#{value.inspect}`"
       end
 
       if value.to_s =~ /^\d+$/
-        @config[:connection_pool_prestart] = value.to_i
+        @config[:prestart_connections] = value.to_i
       else
-        @config[:connection_pool_prestart] = false
+        @config[:prestart_connections] = false
       end
+    end
+
+    def min_idle_connections
+      @config[:min_idle_connections]
+    end
+
+    def min_idle_connections=(value)
+      unless value.is_a?(Numeric) || value =~ /^\d+$/
+        fail Error::ConfigError, 'Expected min_idle_connections to be ' \
+                           "a valid integer value, but found `#{value.inspect}`"
+      end
+      @config[:min_idle_connections] = value.to_i
+    end
+
+    def max_idle_connections
+      @config[:max_idle_connections]
+    end
+
+    def max_idle_connections=(value)
+      unless value.is_a?(Numeric) || value =~ /^\d+$/
+        fail Error::ConfigError, 'Expected max_idle_connections to be ' \
+                           "a valid integer value, but found `#{value.inspect}`"
+      end
+      @config[:max_idle_connections] = begin
+        value.to_i
+      rescue FloatDomainError => e
+        raise unless e.message =~ /infinity/i
+        ::Float::INFINITY
+      end
+    end
+
+    def max_idle_time
+      @config[:max_idle_time]
+    end
+
+    def max_idle_time=(value)
+      unless value.is_a?(Numeric) || value =~ /^\d+$/
+        fail Error::ConfigError, 'Expected max_idle_time to be ' \
+                           "a valid integer value, but found `#{value.inspect}`"
+      end
+      @config[:max_idle_time] = value.to_i
     end
 
     def connection_pool_queue_type
@@ -91,47 +198,16 @@ module AdvancedConnection
 
     def connection_pool_queue_type=(value)
       unless value.is_a?(String) || value.is_a?(Symbol)
-        raise ConfigError, 'Expected String or Symbol for connection_pool_queue_type ' \
+        fail Error::ConfigError, 'Expected String or Symbol for connection_pool_queue_type ' \
                            "but found `#{value.class.name}`"
       end
 
       unless VALID_QUEUE_TYPES.include? value.to_sym
-        raise ConfigError, 'Expected connection_pool_queue_type to be one of ' \
+        fail Error::ConfigError, 'Expected connection_pool_queue_type to be one of ' \
                            ':fifo, :lifo, :prefer_younger, or :prefer_older ' \
                            "but found `#{value.inspect}`"
       end
       @config[:connection_pool_queue_type] = value
     end
-
-    def callbacks
-      @config[:callbacks] ||= begin
-        default_callbacks = {
-          before_checkin:  nil, after_checkin:  nil,
-          before_checkout: nil, after_checkout: nil,
-        }
-        ActiveSupport::OrderedOptions.new.tap do |callbacks|
-          callbacks.without_connection = ActiveSupport::OrderedOptions.new
-          callbacks.without_connection.checkin  = ActiveSupport::OrderedOptions.new
-          callbacks.without_connection.checkout = ActiveSupport::OrderedOptions.new
-          default_callbacks.merge(without_connection_callbacks).each do |callback, proc|
-            if callback.to_s =~ /^(before|after)_(checkin|checkout)$/
-              callbacks.without_connection[$2][$1] = proc
-            end
-          end
-        end
-      end
-    end
-
-    def without_connection_callbacks
-      @config[:without_connection_callbacks]
-    end
-
-    def without_connection_callbacks=(value)
-      unless value.is_a? Hash
-        raise ConfigError, "without_connection callbacks must be a hash"
-      end
-      @config[:without_connection_callbacks] = value.with_indifferent_access
-    end
-
   end
 end

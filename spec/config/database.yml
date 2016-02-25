@@ -1,0 +1,18 @@
+default: &default
+  adapter: postgresql
+  database: advanced_connection_test
+<%- if RUBY_ENGINE == 'jruby' -%>
+  driver: org.postgresql.Driver
+  url: jdbc:postgresql://localhost:5432/advanced_connection_test
+<%- end -%>
+  pool: 50
+  timeout: 5000
+  pool_queue_type: lifo
+  max_idle_time: 5
+  max_idle_connections: 10
+  min_idle_connections: 5
+  prestart_connections: 10
+  dead_connection_timeout: 30
+
+test:
+  <<: *default
