@@ -1,6 +1,7 @@
 require 'active_record'
 require 'active_support/concern'
 require 'active_support/hash_with_indifferent_access'
+require 'advanced_connection/version'
 require 'singleton'
 require 'logger'
 
@@ -13,8 +14,6 @@ module AdvancedConnection
     autoload :Config
     autoload :Error
   end
-
-  autoload :VERSION
 
   included do
     include ActiveRecordExt

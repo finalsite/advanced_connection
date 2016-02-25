@@ -103,6 +103,25 @@ module AdvancedConnection
       @config[:connection_pool_queue_type] = value
     end
 
+    def callbacks
+      @config[:callbacks] ||= begin
+        default_callbacks = {
+          before_checkin:  nil, after_checkin:  nil,
+          before_checkout: nil, after_checkout: nil,
+        }
+        ActiveSupport::OrderedOptions.new.tap do |callbacks|
+          callbacks.without_connection = ActiveSupport::OrderedOptions.new
+          callbacks.without_connection.checkin  = ActiveSupport::OrderedOptions.new
+          callbacks.without_connection.checkout = ActiveSupport::OrderedOptions.new
+          default_callbacks.merge(without_connection_callbacks).each do |callback, proc|
+            if callback.to_s =~ /^(before|after)_(checkin|checkout)$/
+              callbacks.without_connection[$2][$1] = proc
+            end
+          end
+        end
+      end
+    end
+
     def without_connection_callbacks
       @config[:without_connection_callbacks]
     end
