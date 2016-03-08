@@ -58,6 +58,7 @@ GEM
     diff-lcs (1.2.5)
     docile (1.1.5)
     erubis (2.7.0)
+    ffi (1.9.10)
     ffi (1.9.10-java)
     formatador (0.2.5)
     globalid (0.3.6)
