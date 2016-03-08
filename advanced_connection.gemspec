@@ -10,8 +10,8 @@ Gem::Specification.new do |spec|
   spec.authors     = ["Carl P. Corliss"]
   spec.email       = ["rabbitt@gmail.com"]
   spec.homepage    = "https://github.com/finalsite/advanced_connection"
-  spec.summary     = "TODO: Summary of AdvancedConnection."
-  spec.description = "TODO: Description of AdvancedConnection."
+  spec.summary     = "Provides advanced connection options for rails connection pools"
+  spec.description = "Adds idle connection management, statement pooling, and other advanced connection features"
   spec.license     = "LGPL"
 
   spec.files = `git ls-files`.split($/)

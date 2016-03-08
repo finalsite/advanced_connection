@@ -19,7 +19,7 @@ module AdvancedConnection
       :enable_statement_pooling       => false,
       :enable_idle_connection_manager => false,
       :connection_pool_queue_type     => :fifo,
-      :prestart_connections           => false,
+      :warmup_connections           => false,
       :min_idle_connections           => 0,
       :max_idle_connections           => ::Float::INFINITY,
       :max_idle_time                  => 1.day,
@@ -134,20 +134,20 @@ module AdvancedConnection
       @config[:enable_idle_connection_manager] = !!value
     end
 
-    def prestart_connections
-      @config[:prestart_connections]
+    def warmup_connections
+      @config[:warmup_connections]
     end
 
-    def prestart_connections=(value)
+    def warmup_connections=(value)
       unless value.nil? || value === false || value.is_a?(Fixnum) || value =~ /^\d+$/
-        fail Error::ConfigError, 'Expected prestart_connections to be nil, false ' \
+        fail Error::ConfigError, 'Expected warmup_connections to be nil, false ' \
                            "or a valid positive integer, but found `#{value.inspect}`"
       end
 
       if value.to_s =~ /^\d+$/
-        @config[:prestart_connections] = value.to_i
+        @config[:warmup_connections] = value.to_i
       else
-        @config[:prestart_connections] = false
+        @config[:warmup_connections] = false
       end
     end
 

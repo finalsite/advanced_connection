@@ -21,7 +21,7 @@ module AdvancedConnection::ActiveRecordExt
     end
 
     def instance_age
-      (Time.now - @instantiated_at).to_i
+      (Time.now - @instantiated_at).to_f
     end
   end
 end

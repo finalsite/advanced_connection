@@ -7,7 +7,7 @@ AdvancedConnection.configure do |config|
   # config.enable_idle_connection_manager = <%= AdvancedConnection::Config::DEFAULT_CONFIG.enable_idle_connection_manager.inspect %>
 
   # config.connection_pool_queue_type     = <%= AdvancedConnection::Config::DEFAULT_CONFIG.connection_pool_queue_type.inspect %>
-  # config.prestart_connections           = <%= AdvancedConnection::Config::DEFAULT_CONFIG.prestart_connections.inspect %>
+  # config.warmup_connections             = <%= AdvancedConnection::Config::DEFAULT_CONFIG.warmup_connections.inspect %>
   # config.min_idle_connections           = <%= AdvancedConnection::Config::DEFAULT_CONFIG.min_idle_connections.inspect %>
   # config.max_idle_connections           = ::Float::INFINITY
   # config.max_idle_time                  = 1.day

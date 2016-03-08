@@ -6,17 +6,12 @@ require 'singleton'
 require 'logger'
 
 module AdvancedConnection
-  extend ActiveSupport::Concern
   extend ActiveSupport::Autoload
 
   eager_autoload do
     autoload :ActiveRecordExt
     autoload :Config
     autoload :Error
-  end
-
-  included do
-    include ActiveRecordExt
   end
 
   class << self

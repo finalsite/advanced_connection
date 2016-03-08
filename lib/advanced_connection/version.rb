@@ -1,7 +1,7 @@
 module AdvancedConnection
   MAJOR = 0
-  MINOR = 0
-  PATCH = 1
+  MINOR = 1
+  PATCH = 0
 
   VERSION     = "%d.%d.%d" % [ MAJOR, MINOR, PATCH ]
   GEM_VERSION = Gem::Version.new(VERSION)
