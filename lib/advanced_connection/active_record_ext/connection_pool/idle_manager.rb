@@ -8,24 +8,30 @@ module AdvancedConnection::ActiveRecordExt
         alias_method_chain :checkin, :last_checked_in
 
         class IdleManager
-          attr_reader :pool
-          private :pool
+          attr_reader :pool, :interval, :thread
 
-          def initialize(pool)
-            @pool    = pool
-            @thread  = nil
+          def initialize(pool, interval)
+            @pool     = pool
+            @interval = interval.to_i
+            @thread   = nil
           end
 
           def run
-            return nil unless pool.max_idle_time > 0
+            return unless interval > 0
 
-            @thread ||= Thread.new {
-              pool.send(:idle_info, "starting idle manager; running every #{pool.max_idle_time} seconds")
+            @thread ||= Thread.new(pool, interval) { |_pool, _interval|
+              _pool.send(:idle_info, "starting idle manager; running every #{_interval} seconds")
+
               loop do
-                sleep pool.max_idle_time
-                pool.send(:idle_debug, "starting idle connection cleanup and warmup")
-                pool.remove_idle_connections
-                pool.create_idle_connections
+                sleep _interval
+
+                begin
+                  _pool.send(:idle_debug, "performing idle connection checks")
+                  _pool.remove_idle_connections
+                  _pool.create_idle_connections
+                rescue => e
+                  Rails.logger.error e
+                end
               end
             }
           end
@@ -36,65 +42,59 @@ module AdvancedConnection::ActiveRecordExt
         initialize_without_advanced_connection(spec)
 
         @available  = case queue_type
-          when :prefer_older then
-            Queues::OldAgeBiased.new
-          when :prefer_younger then
-            Queues::YoungAgeBiased.new
-          when :lifo then
-            Queues::Stack.new
-          else
-            Queues::Default.new
+          when :prefer_older   then Queues::OldAgeBiased.new
+          when :prefer_younger then Queues::YoungAgeBiased.new
+          when :lifo, :stack   then Queues::Stack.new
+        else
+          Rails.logger.warn "Unknown queue_type #{queue_type.inspect} - using FIFO instead"
+          Queues::Default.new
         end
 
-        @idle_manager = IdleManager.new(self).tap { |m| m.run }
+        @idle_manager = IdleManager.new(self, idle_check_interval).tap { |m| m.run }
       end
 
       def queue_type
         @queue_type ||= begin
-          synchronize do
-            type = spec.config.fetch(:queue_type,
-              AdvancedConnection.connection_pool_queue_type).to_s.downcase.to_sym
-          end
+          type = spec.config.fetch(:queue_type,
+            AdvancedConnection.connection_pool_queue_type).to_s.downcase.to_sym
         end
       end
 
       def warmup_connection_count
         @warmup_connection_count ||= begin
-          synchronize do
-            conns = spec.config[:warmup_connections] || AdvancedConnection.warmup_connections
-            conns.to_i > connection_limit ? connection_limit : conns.to_i
-          end || AdvancedConnection.warmup_connections.to_i
+          conns = spec.config[:warmup_connections] || AdvancedConnection.warmup_connections
+          conns.to_i > connection_limit ? connection_limit : conns.to_i
         end
       end
 
       def max_idle_time
         @max_idle_time ||= begin
-          synchronize do
-            (spec.config[:max_idle_time] || AdvancedConnection.max_idle_time).to_i
-          end
+          (spec.config[:max_idle_time] || AdvancedConnection.max_idle_time).to_i
+        end
+      end
+
+      def idle_check_interval
+        @idle_check_interval ||= begin
+          (spec.config[:idle_check_interval] || AdvancedConnection.idle_check_interval || max_idle_time).to_i
         end
       end
 
       def max_idle_connections
         @max_idle_connections ||= begin
-          synchronize do
-            begin
-              (spec.config[:max_idle_connections] || AdvancedConnection.max_idle_connections).to_i
-            rescue FloatDomainError => e
-              raise unless e.message =~ /infinity/i
-              ::Float::INFINITY
-            end
+          begin
+            (spec.config[:max_idle_connections] || AdvancedConnection.max_idle_connections).to_i
+          rescue FloatDomainError => e
+            raise unless e.message =~ /infinity/i
+            ::Float::INFINITY
           end
         end
       end
 
       def min_idle_connections
         @min_idle_connections ||= begin
-          synchronize do
-            min_idle = (spec.config[:min_idle_connections] || AdvancedConnection.min_idle_connections).to_i
-            min_idle = (min_idle > 0 ? min_idle : 0)
-            min_idle <= max_idle_connections ? min_idle : max_idle_connections
-          end
+          min_idle = (spec.config[:min_idle_connections] || AdvancedConnection.min_idle_connections).to_i
+          min_idle = (min_idle > 0 ? min_idle : 0)
+          min_idle <= max_idle_connections ? min_idle : max_idle_connections
         end
       end
 
@@ -104,61 +104,63 @@ module AdvancedConnection::ActiveRecordExt
 
       def checkin_with_last_checked_in(conn)
         conn.last_checked_in = Time.now
+        idle_debug "checking in connection #{conn.object_id} at #{conn.last_checked_in}"
         checkin_without_last_checked_in(conn)
       end
 
       def active_connections
-        synchronize do
-          @connections.select { |conn| conn.in_use? }
-        end
+        @connections.select { |conn| conn.in_use? }
+      end
+
+      def available_connections
+        @connections.reject(&:in_use?)
+      end
+
+      def idle_connections
+        available_connections.select do |conn|
+          (Time.now - conn.last_checked_in).to_f > max_idle_time
+        end.sort { |a,b|
+          case queue_type
+            when :prefer_younger then
+              # when prefering younger, we sort oldest->youngest
+              # this ensures that older connections will be culled
+              # during #remove_idle_connections()
+              -(a.instance_age <=> b.instance_age)
+            when :prefer_older then
+              # when prefering older, we sort youngest->oldest
+              # this ensures that younger connections will be culled
+              # during #remove_idle_connections()
+              (a.instance_age <=> b.instance_age)
+            else
+              # with fifo / lifo queues, we only care about the
+              # last time a given connection was used (inferred
+              # by when it was last checked into the pool).
+              # This ensures that the longer idling connections
+              # will be culled.
+              -(a.last_checked_in <=> b.last_checked_in)
+          end
+        }
       end
 
       def pool_statistics
         synchronize do
           ActiveSupport::OrderedOptions.new.merge({
             total: @connections.size,
-            reserved: @connections.count(&:in_use?),
-            available: @connections.count {|conn| !conn.in_use? }
+            idle: idle_connections.size,
+            active: active_connections.size,
+            available: available_connections.size,
           })
-        end
-      end
-
-      def idle_connections
-        synchronize do
-          @connections.select do |conn|
-            !conn.in_use? && (Time.now - conn.last_checked_in).to_i > max_idle_time
-          end.sort { |a,b|
-            case queue_type
-              when :prefer_younger then
-                # when prefering younger, we sort oldest->youngest
-                # this ensures that older connections will be culled
-                # during #remove_idle_connections()
-                -(a.instance_age <=> b.instance_age)
-              when :prefer_older then
-                # when prefering older, we sort youngest->oldest
-                # this ensures that younger connections will be culled
-                # during #remove_idle_connections()
-                (a.instance_age <=> b.instance_age)
-              else
-                # with fifo / lifo queues, we only care about the
-                # last time a given connection was used (inferred
-                # by when it was last checked into the pool).
-                # This ensures that the longer idling connections
-                # will be culled.
-                -(a.last_checked_in <=> b.last_checked_in)
-            end
-          }
         end
       end
 
       def warmup_connections(count = nil)
         count ||= warmup_connection_count
-        synchronize do
-          slots = connection_limit - @connections.size
-          count = slots if slots < count
+        slots = connection_limit - @connections.size
+        count = slots if slots < count
 
-          if slots >= count
-            idle_info "Warming up #{count} connection#{count > 1 ? 's' : ''}"
+        if slots >= count
+          idle_info "Warming up #{count} connection#{count > 1 ? 's' : ''}"
+          synchronize do
             count.times {
               conn = checkout_new_connection
               @available.add conn
@@ -194,8 +196,16 @@ module AdvancedConnection::ActiveRecordExt
 
         if idle_count > max_idle_connections
           cull_count = (idle_count - max_idle_connections)
-          culled = idle_conns[0...cull_count].inject(0) do |acc, conn|
-            acc += remove_connection(conn) ? 1 : 0
+
+          culled = 0
+          idle_conns.each_with_index do |conn, idx|
+            last_ci = (Time.now - conn.last_checked_in).to_f
+            if idx < cull_count
+              culled += remove_connection(conn) ? 1 : 0
+              idle_debug "culled connection ##{idx} id##{conn.object_id} - age:#{conn.instance_age} last_checkin:#{last_ci}"
+            else
+              idle_debug "kept connection ##{idx} id##{conn.object_id} - age:#{conn.instance_age} last_checkin:#{last_ci}"
+            end
           end
 
           idle_info "culled %d connections" % culled
@@ -213,23 +223,21 @@ module AdvancedConnection::ActiveRecordExt
         true
       end
 
-      def idle_message(message)
+      def idle_message(format, *args)
+        stats = pool_statistics
         format(
-          "[%s] IdleManager [thread:%d,spec:%d] (A:%d,I:%d,T:%d): %s",
-          Time.now.to_s,
-          current_connection_id,
-          spec.object_id,
-          active_connections.size, idle_connections.size, connections.size,
-          message
+          "IdleManager (Actv:%d,Avail:%d,Idle:%d,Total:%d): #{format}",
+          stats.active, stats.available, stats.idle, stats.total,
+          *args
         )
       end
 
-      def idle_debug(message)
-        Rails.logger.debug idle_message(message)
+      def idle_debug(format, *args)
+        Rails.logger.debug idle_message(format, *args)
       end
 
-      def idle_info(message)
-        Rails.logger.info idle_message(message)
+      def idle_info(format, *args)
+        Rails.logger.info idle_message(format, *args)
       end
     end
   end

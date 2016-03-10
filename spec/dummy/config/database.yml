@@ -1,17 +1,17 @@
 ---
 development: &1
-  pool: 20
+  pool: 50
   timeout: 5000
-  pool_queue_type: fifo
-  max_idle_time: 5
+  queue_type: :prefer_older
   min_idle_connections: 5
   max_idle_connections: 10
-  prestart_connections: 10
-  dead_connection_timeout: 30
+  warmup_connections: 20
+  dead_connection_timeout: 15
+  reaping_frequency: 15
   adapter: postgresql
   database: advanced_connection_test
   username: postgres
   min_messages: WARNING
   schema_search_path: public
-  password: 
+  password:
 test: *1

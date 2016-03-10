@@ -5,7 +5,7 @@ module AdvancedConnection
     include Singleton
 
     VALID_QUEUE_TYPES = [
-      :fifo, :lifo, :prefer_younger, :prefer_older
+      :fifo, :lifo, :stack, :prefer_younger, :prefer_older
     ].freeze unless defined? VALID_QUEUE_TYPES
 
     CALLBACK_TYPES = ActiveSupport::OrderedOptions.new.merge({
@@ -19,10 +19,11 @@ module AdvancedConnection
       :enable_statement_pooling       => false,
       :enable_idle_connection_manager => false,
       :connection_pool_queue_type     => :fifo,
-      :warmup_connections           => false,
+      :warmup_connections             => false,
       :min_idle_connections           => 0,
       :max_idle_connections           => ::Float::INFINITY,
-      :max_idle_time                  => 1.day,
+      :max_idle_time                  => 0,
+      :idle_check_interval            => 0,
       :callbacks                      => ActiveSupport::OrderedOptions.new
     }).freeze unless defined? DEFAULT_CONFIG
 
@@ -192,6 +193,18 @@ module AdvancedConnection
       @config[:max_idle_time] = value.to_i
     end
 
+    def idle_check_interval
+      @config[:idle_check_interval]
+    end
+
+    def idle_check_interval=(value)
+      unless value.is_a?(Numeric) || value =~ /^\d+$/
+        fail Error::ConfigError, 'Expected idle_check_interval to be ' \
+                           "a valid integer value, but found `#{value.inspect}`"
+      end
+      @config[:idle_check_interval] = value.to_i
+    end
+
     def connection_pool_queue_type
       @config[:connection_pool_queue_type]
     end
@@ -204,7 +217,7 @@ module AdvancedConnection
 
       unless VALID_QUEUE_TYPES.include? value.to_sym
         fail Error::ConfigError, 'Expected connection_pool_queue_type to be one of ' \
-                           ':fifo, :lifo, :prefer_younger, or :prefer_older ' \
+                           ':fifo, :lifo, :stack, :prefer_younger, or :prefer_older ' \
                            "but found `#{value.inspect}`"
       end
       @config[:connection_pool_queue_type] = value
