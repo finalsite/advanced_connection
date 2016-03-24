@@ -26,9 +26,13 @@ module AdvancedConnection::ActiveRecordExt
                 sleep _interval
 
                 begin
-                  _pool.send(:idle_debug, "performing idle connection checks")
+                  start = Time.now.to_f
+                  _pool.send(:idle_info, "beginning idle connection cleanup")
                   _pool.remove_idle_connections
+                  _pool.send(:idle_info, "beginning idle connection warmup")
                   _pool.create_idle_connections
+                  finish = (Time.now.to_f - start).round(3)
+                  _pool.send(:idle_info, "finished idle connection tasks in #{finish} seconds.; next run in #{pool.max_idle_time} seconds")
                 rescue => e
                   Rails.logger.error e
                 end
@@ -202,9 +206,9 @@ module AdvancedConnection::ActiveRecordExt
             last_ci = (Time.now - conn.last_checked_in).to_f
             if idx < cull_count
               culled += remove_connection(conn) ? 1 : 0
-              idle_debug "culled connection ##{idx} id##{conn.object_id} - age:#{conn.instance_age} last_checkin:#{last_ci}"
+              idle_info "culled connection ##{idx} id##{conn.object_id} - age:#{conn.instance_age} last_checkin:#{last_ci}"
             else
-              idle_debug "kept connection ##{idx} id##{conn.object_id} - age:#{conn.instance_age} last_checkin:#{last_ci}"
+              idle_info "kept connection ##{idx} id##{conn.object_id} - age:#{conn.instance_age} last_checkin:#{last_ci}"
             end
           end
 
