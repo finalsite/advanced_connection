@@ -1,3 +1,24 @@
+#
+# Copyright (C) 2016 Finalsite, LLC
+# Copyright (C) 2016 Carl P. Corliss <carl.corliss@finalsite.com>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy of
+# this software and associated documentation files (the "Software"), to deal in
+# the Software without restriction, including without limitation the rights to
+# use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+# the Software, and to permit persons to whom the Software is furnished to do so,
+# subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+# FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+# COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+# IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
 require 'singleton'
 
 module AdvancedConnection
@@ -8,24 +29,24 @@ module AdvancedConnection
       :fifo, :lifo, :stack, :prefer_younger, :prefer_older
     ].freeze unless defined? VALID_QUEUE_TYPES
 
-    CALLBACK_TYPES = ActiveSupport::OrderedOptions.new.merge({
+    CALLBACK_TYPES = ActiveSupport::OrderedOptions.new.merge(
       before: nil,
       around: nil,
       after: nil
-    }).freeze unless defined? CALLBACK_TYPES
+    ).freeze unless defined? CALLBACK_TYPES
 
-    DEFAULT_CONFIG = ActiveSupport::OrderedOptions.new.merge({
-      :enable_without_connection      => false,
-      :enable_statement_pooling       => false,
-      :enable_idle_connection_manager => false,
-      :connection_pool_queue_type     => :fifo,
-      :warmup_connections             => false,
-      :min_idle_connections           => 0,
-      :max_idle_connections           => ::Float::INFINITY,
-      :max_idle_time                  => 0,
-      :idle_check_interval            => 0,
-      :callbacks                      => ActiveSupport::OrderedOptions.new
-    }).freeze unless defined? DEFAULT_CONFIG
+    DEFAULT_CONFIG = ActiveSupport::OrderedOptions.new.merge(
+      enable_without_connection:      false,
+      enable_statement_pooling:       false,
+      enable_idle_connection_manager: false,
+      connection_pool_queue_type:     :fifo,
+      warmup_connections:             false,
+      min_idle_connections:           0,
+      max_idle_connections:           ::Float::INFINITY,
+      max_idle_time:                  0,
+      idle_check_interval:            0,
+      callbacks:                      ActiveSupport::OrderedOptions.new
+    ).freeze unless defined? DEFAULT_CONFIG
 
     class << self
       def method_missing(method, *args, &block)
@@ -34,7 +55,7 @@ module AdvancedConnection
       end
 
       def respond_to_missing?(method, include_private = false)
-        instance.respond_to?(method) || super
+        instance.respond_to?(method, include_private) || super
       end
 
       def include?(key)
@@ -72,6 +93,9 @@ module AdvancedConnection
 
     add_callbacks :without_connection, :statement_pooling
 
+    attr_reader :loaded
+    alias_method :loaded?, :loaded
+
     def initialize
       @loaded = false
       @config = DEFAULT_CONFIG.deep_dup
@@ -79,10 +103,6 @@ module AdvancedConnection
 
     def loaded!
       @loaded = true
-    end
-
-    def loaded?
-      @loaded
     end
 
     def [](key)
@@ -140,16 +160,12 @@ module AdvancedConnection
     end
 
     def warmup_connections=(value)
-      unless value.nil? || value === false || value.is_a?(Fixnum) || value =~ /^\d+$/
+      unless !!value || value.is_a?(Fixnum) || value =~ /^\d+$/
         fail Error::ConfigError, 'Expected warmup_connections to be nil, false ' \
                            "or a valid positive integer, but found `#{value.inspect}`"
       end
 
-      if value.to_s =~ /^\d+$/
-        @config[:warmup_connections] = value.to_i
-      else
-        @config[:warmup_connections] = false
-      end
+      @config[:warmup_connections] = value.to_s =~ /^\d+$/ ? value.to_i : false
     end
 
     def min_idle_connections
@@ -175,8 +191,8 @@ module AdvancedConnection
       end
       @config[:max_idle_connections] = begin
         value.to_i
-      rescue FloatDomainError => e
-        raise unless e.message =~ /infinity/i
+      rescue FloatDomainError
+        raise unless $!.message =~ /infinity/i
         ::Float::INFINITY
       end
     end

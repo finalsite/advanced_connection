@@ -89,6 +89,11 @@ AdvancedConnection.configure do |config|
   #
   ## Statement Pooling
   #
+  # **** WARNING **** EXPERIMENTAL **** WARNING **** EXPERIMENTAL ****
+  #
+  # THIS FEATURE IS HIGHLY EXPERIMENTAL AND PRONE TO FAILURE. DO NOT USE UNLESS
+  # YOU PLAN TO AIDE IN IT'S DEVELOPMENT.
+  #
   # When enabled, this feature causes your connections to immediately be returned to
   # the pool upon completion of each query (with the exception of transactions, where
   # the connection is returned after transaction commit/rollback). This can help to

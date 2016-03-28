@@ -1,3 +1,24 @@
+#
+# Copyright (C) 2016 Finalsite, LLC
+# Copyright (C) 2016 Carl P. Corliss <carl.corliss@finalsite.com>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy of
+# this software and associated documentation files (the "Software"), to deal in
+# the Software without restriction, including without limitation the rights to
+# use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+# the Software, and to permit persons to whom the Software is furnished to do so,
+# subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+# FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+# COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+# IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
 module AdvancedConnection::ActiveRecordExt
   module ConnectionPool
     module IdleManager
@@ -8,7 +29,7 @@ module AdvancedConnection::ActiveRecordExt
         alias_method_chain :checkin, :last_checked_in
 
         class IdleManager
-          attr_reader :pool, :interval, :thread
+          attr_reader :thread
 
           def initialize(pool, interval)
             @pool     = pool
@@ -17,24 +38,25 @@ module AdvancedConnection::ActiveRecordExt
           end
 
           def run
-            return unless interval > 0
+            return unless @interval > 0
 
-            @thread ||= Thread.new(pool, interval) { |_pool, _interval|
-              _pool.send(:idle_info, "starting idle manager; running every #{_interval} seconds")
+            @thread ||= Thread.new(@pool, @interval) { |pool, interval|
+              pool.send(:idle_info, "starting idle manager; running every #{interval} seconds")
 
               loop do
-                sleep _interval
+                sleep interval
 
                 begin
-                  start = Time.now.to_f
-                  _pool.send(:idle_info, "beginning idle connection cleanup")
-                  _pool.remove_idle_connections
-                  _pool.send(:idle_info, "beginning idle connection warmup")
-                  _pool.create_idle_connections
-                  finish = (Time.now.to_f - start).round(3)
-                  _pool.send(:idle_info, "finished idle connection tasks in #{finish} seconds.; next run in #{pool.max_idle_time} seconds")
+                  start = Time.now
+                  pool.send(:idle_info, "beginning idle connection cleanup")
+                  pool.remove_idle_connections
+                  pool.send(:idle_info, "beginning idle connection warmup")
+                  pool.create_idle_connections
+                  finish = (Time.now - start).round(6)
+                  pool.send(:idle_info, "finished idle connection tasks in #{finish} seconds; next run in #{pool.max_idle_time} seconds")
                 rescue => e
-                  Rails.logger.error e
+                  Rails.logger.error "#{e.class.name}: #{e.message}"
+                  e.backtrace.each { |line| Rails.logger.error line }
                 end
               end
             }
@@ -45,23 +67,21 @@ module AdvancedConnection::ActiveRecordExt
       def initialize_with_advanced_connection(spec)
         initialize_without_advanced_connection(spec)
 
-        @available  = case queue_type
+        @available = case queue_type
           when :prefer_older   then Queues::OldAgeBiased.new
           when :prefer_younger then Queues::YoungAgeBiased.new
           when :lifo, :stack   then Queues::Stack.new
-        else
-          Rails.logger.warn "Unknown queue_type #{queue_type.inspect} - using FIFO instead"
-          Queues::Default.new
+          else
+            Rails.logger.warn "Unknown queue_type #{queue_type.inspect} - using standard FIFO instead"
+            Queues::FIFO.new
         end
 
-        @idle_manager = IdleManager.new(self, idle_check_interval).tap { |m| m.run }
+        @idle_manager = IdleManager.new(self, idle_check_interval).tap(&:run)
       end
 
       def queue_type
-        @queue_type ||= begin
-          type = spec.config.fetch(:queue_type,
-            AdvancedConnection.connection_pool_queue_type).to_s.downcase.to_sym
-        end
+        @queue_type ||= spec.config.fetch(:queue_type,
+                                          AdvancedConnection.connection_pool_queue_type).to_s.downcase.to_sym
       end
 
       def warmup_connection_count
@@ -72,21 +92,21 @@ module AdvancedConnection::ActiveRecordExt
       end
 
       def max_idle_time
-        @max_idle_time ||= begin
-          (spec.config[:max_idle_time] || AdvancedConnection.max_idle_time).to_i
-        end
+        @max_idle_time ||= (spec.config[:max_idle_time] || \
+                           AdvancedConnection.max_idle_time).to_i
       end
 
       def idle_check_interval
-        @idle_check_interval ||= begin
-          (spec.config[:idle_check_interval] || AdvancedConnection.idle_check_interval || max_idle_time).to_i
-        end
+        @idle_check_interval ||= (spec.config[:idle_check_interval] || \
+                                 AdvancedConnection.idle_check_interval || \
+                                 max_idle_time).to_i
       end
 
       def max_idle_connections
         @max_idle_connections ||= begin
           begin
-            (spec.config[:max_idle_connections] || AdvancedConnection.max_idle_connections).to_i
+            (spec.config[:max_idle_connections] || \
+              AdvancedConnection.max_idle_connections).to_i
           rescue FloatDomainError => e
             raise unless e.message =~ /infinity/i
             ::Float::INFINITY
@@ -113,7 +133,7 @@ module AdvancedConnection::ActiveRecordExt
       end
 
       def active_connections
-        @connections.select { |conn| conn.in_use? }
+        @connections.select(&:in_use?)
       end
 
       def available_connections
@@ -123,7 +143,7 @@ module AdvancedConnection::ActiveRecordExt
       def idle_connections
         available_connections.select do |conn|
           (Time.now - conn.last_checked_in).to_f > max_idle_time
-        end.sort { |a,b|
+        end.sort { |a, b|
           case queue_type
             when :prefer_younger then
               # when prefering younger, we sort oldest->youngest
@@ -147,14 +167,20 @@ module AdvancedConnection::ActiveRecordExt
       end
 
       def pool_statistics
+        idle = active = available = 0
         synchronize do
-          ActiveSupport::OrderedOptions.new.merge({
-            total: @connections.size,
-            idle: idle_connections.size,
-            active: active_connections.size,
-            available: available_connections.size,
-          })
+          idle      = idle_connections.size
+          active    = active_connections.size
+          available = available_connections.size
         end
+        total = active + available
+
+        ActiveSupport::OrderedOptions.new.merge(
+          total:     total,
+          idle:      idle,
+          active:    active,
+          available: available,
+        )
       end
 
       def warmup_connections(count = nil)
