@@ -101,6 +101,13 @@ module AdvancedConnection
       @config = DEFAULT_CONFIG.deep_dup
     end
 
+    def can_enable?
+      # don't enable if we're running rake tasks, in particular db: or assets: tasks
+      return false if $0.include? 'rake'
+      return false if ARGV.grep(/^(assets|db):/).any?
+      true
+    end
+
     def loaded!
       @loaded = true
     end

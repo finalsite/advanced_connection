@@ -179,7 +179,7 @@ module AdvancedConnection::ActiveRecordExt
           total:     total,
           idle:      idle,
           active:    active,
-          available: available,
+          available: available
         )
       end
 
@@ -188,14 +188,14 @@ module AdvancedConnection::ActiveRecordExt
         slots = connection_limit - @connections.size
         count = slots if slots < count
 
-        if slots >= count
-          idle_info "Warming up #{count} connection#{count > 1 ? 's' : ''}"
-          synchronize do
-            count.times {
-              conn = checkout_new_connection
-              @available.add conn
-            }
-          end
+        return unless slots >= count
+
+        idle_info "Warming up #{count} connection#{count > 1 ? 's' : ''}"
+        synchronize do
+          count.times {
+            conn = checkout_new_connection
+            @available.add conn
+          }
         end
       end
 
@@ -224,22 +224,22 @@ module AdvancedConnection::ActiveRecordExt
         idle_conns = idle_connections
         idle_count = idle_conns.size
 
-        if idle_count > max_idle_connections
-          cull_count = (idle_count - max_idle_connections)
+        return unless idle_count > max_idle_connections
 
-          culled = 0
-          idle_conns.each_with_index do |conn, idx|
-            last_ci = (Time.now - conn.last_checked_in).to_f
-            if idx < cull_count
-              culled += remove_connection(conn) ? 1 : 0
-              idle_info "culled connection ##{idx} id##{conn.object_id} - age:#{conn.instance_age} last_checkin:#{last_ci}"
-            else
-              idle_info "kept connection ##{idx} id##{conn.object_id} - age:#{conn.instance_age} last_checkin:#{last_ci}"
-            end
+        cull_count = (idle_count - max_idle_connections)
+
+        culled = 0
+        idle_conns.each_with_index do |conn, idx|
+          last_ci = (Time.now - conn.last_checked_in).to_f
+          if idx < cull_count
+            culled += remove_connection(conn) ? 1 : 0
+            idle_info "culled connection ##{idx} id##{conn.object_id} - age:#{conn.instance_age} last_checkin:#{last_ci}"
+          else
+            idle_info "kept connection ##{idx} id##{conn.object_id} - age:#{conn.instance_age} last_checkin:#{last_ci}"
           end
-
-          idle_info "culled %d connections" % culled
         end
+
+        idle_info "culled %d connections" % culled
       end
 
     private
