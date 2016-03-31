@@ -20,6 +20,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #
 require 'singleton'
+require 'monitor'
 
 module AdvancedConnection
   class Config
@@ -99,17 +100,24 @@ module AdvancedConnection
     def initialize
       @loaded = false
       @config = DEFAULT_CONFIG.deep_dup
+      @mutex  = Monitor.new
     end
 
+    def synchronize
+      @mutex.synchronize { yield }
+    end
+    private :synchronize
+
     def can_enable?
-      # don't enable if we're running rake tasks, in particular db: or assets: tasks
+      # don't enable if we're running rake tasks generally,
+      # and specifically, if it's db: or assets: tasks
       return false if $0.include? 'rake'
       return false if ARGV.grep(/^(assets|db):/).any?
       true
     end
 
     def loaded!
-      @loaded = true
+      synchronize { @loaded = true }
     end
 
     def [](key)
@@ -140,7 +148,7 @@ module AdvancedConnection
       if enable_statement_pooling && !!value
         raise Error::ConfigError, "WithoutConnection blocks conflict with Statement Pooling feature"
       end
-      @config[:enable_without_connection] = !!value
+      synchronize { @config[:enable_without_connection] = !!value }
     end
 
     def enable_statement_pooling
@@ -151,7 +159,7 @@ module AdvancedConnection
       if enable_without_connection && !!value
         raise Error::ConfigError, "Statement Pooling conflicts with WithoutConnection feature"
       end
-      @config[:enable_statement_pooling] = !!value
+      synchronize { @config[:enable_statement_pooling] = !!value }
     end
 
     def enable_idle_connection_manager
@@ -159,7 +167,7 @@ module AdvancedConnection
     end
 
     def enable_idle_connection_manager=(value)
-      @config[:enable_idle_connection_manager] = !!value
+      synchronize { @config[:enable_idle_connection_manager] = !!value }
     end
 
     def warmup_connections
@@ -172,7 +180,7 @@ module AdvancedConnection
                            "or a valid positive integer, but found `#{value.inspect}`"
       end
 
-      @config[:warmup_connections] = value.to_s =~ /^\d+$/ ? value.to_i : false
+      synchronize { @config[:warmup_connections] = value.to_s =~ /^\d+$/ ? value.to_i : false }
     end
 
     def min_idle_connections
@@ -184,7 +192,7 @@ module AdvancedConnection
         fail Error::ConfigError, 'Expected min_idle_connections to be ' \
                            "a valid integer value, but found `#{value.inspect}`"
       end
-      @config[:min_idle_connections] = value.to_i
+      synchronize { @config[:min_idle_connections] = value.to_i }
     end
 
     def max_idle_connections
@@ -196,12 +204,14 @@ module AdvancedConnection
         fail Error::ConfigError, 'Expected max_idle_connections to be ' \
                            "a valid integer value, but found `#{value.inspect}`"
       end
-      @config[:max_idle_connections] = begin
-        value.to_i
-      rescue FloatDomainError
-        raise unless $!.message =~ /infinity/i
-        ::Float::INFINITY
-      end
+      synchronize {
+        @config[:max_idle_connections] = begin
+          value.to_i
+        rescue FloatDomainError
+          raise unless $!.message =~ /infinity/i
+          ::Float::INFINITY
+        end
+      }
     end
 
     def max_idle_time
@@ -213,7 +223,7 @@ module AdvancedConnection
         fail Error::ConfigError, 'Expected max_idle_time to be ' \
                            "a valid integer value, but found `#{value.inspect}`"
       end
-      @config[:max_idle_time] = value.to_i
+      synchronize { @config[:max_idle_time] = value.to_i }
     end
 
     def idle_check_interval
@@ -225,7 +235,7 @@ module AdvancedConnection
         fail Error::ConfigError, 'Expected idle_check_interval to be ' \
                            "a valid integer value, but found `#{value.inspect}`"
       end
-      @config[:idle_check_interval] = value.to_i
+      synchronize { @config[:idle_check_interval] = value.to_i }
     end
 
     def connection_pool_queue_type
@@ -243,7 +253,7 @@ module AdvancedConnection
                            ':fifo, :lifo, :stack, :prefer_younger, or :prefer_older ' \
                            "but found `#{value.inspect}`"
       end
-      @config[:connection_pool_queue_type] = value
+      synchronize { @config[:connection_pool_queue_type] = value }
     end
   end
 end

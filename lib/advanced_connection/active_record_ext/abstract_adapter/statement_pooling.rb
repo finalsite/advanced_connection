@@ -28,7 +28,7 @@ module AdvancedConnection::ActiveRecordExt
 
       module ExecuteWrapper
         def __wrap_adapter_exec_methods(*methods)
-          Array(methods).flatten.collect(&:to_sym).each do |exec_method|
+          Array(methods).flat_map(&:to_sym).each do |exec_method|
             class_eval(<<-EOS, __FILE__, __LINE__ + 1)
               def #{exec_method}_with_callback(sql, *args, &block)
                 if Thread.current[:without_callbacks] || sql =~ /^BEGIN/i || transaction_open? || pool.nil?
@@ -49,7 +49,7 @@ module AdvancedConnection::ActiveRecordExt
         alias_method :__wrap_adapter_exec_method, :__wrap_adapter_exec_methods
 
         def __wrap_without_callbacks(*methods)
-          Array(methods).flatten.collect(&:to_sym).each do |exec_method|
+          Array(methods).flat_map(&:to_sym).each do |exec_method|
             target, punctuation = exec_method.to_s.sub(/([?!=])$/, ''), $1
             class_eval(<<-EOS, __FILE__, __LINE__ + 1)
               def #{target}_with_no_callbacks#{punctuation}(*args, &block)

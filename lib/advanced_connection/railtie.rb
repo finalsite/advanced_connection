@@ -25,11 +25,20 @@ module AdvancedConnection
 
     if AdvancedConnection.can_enable?
       ActiveSupport.on_load(:before_initialize) do
-        ActiveSupport.on_load(:active_record) do
+        ActiveSupport.on_load(:active_record) {
           # load our intitializer ASAP so we can make use of user defined configuration
           load Rails.root.join('config', 'initializers', 'advanced_connection.rb')
+
+          # now override the settings with environment speicific ones
+          AdvancedConnection.configure(true) do |ac_cfg|
+            Rails.configuration.advanced_connection.each { |option, value|
+              ac_cfg[option] = value
+            }
+          end
+
+          # and finally, compose ourself
           ActiveRecord::Base.send(:include, AdvancedConnection::ActiveRecordExt)
-        end
+        }
       end
 
       config.after_initialize do

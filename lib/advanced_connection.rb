@@ -40,8 +40,8 @@ module AdvancedConnection
       config.to_h
     end
 
-    def configure(overwrite = true)
-      return unless overwrite
+    def configure(overwrite = false)
+      return config unless overwrite || !config.loaded?
       (yield config).tap { config.loaded! }
     end
 

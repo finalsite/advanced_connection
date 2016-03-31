@@ -28,8 +28,12 @@ module AdvancedConnection::ActiveRecordExt
         alias_method_chain :initialize, :advanced_connection
         alias_method_chain :checkin, :last_checked_in
 
+        attr_reader :idle_manager
+
         class IdleManager
+          attr_accessor :interval
           attr_reader :thread
+          private :thread
 
           def initialize(pool, interval)
             @pool     = pool
@@ -37,7 +41,25 @@ module AdvancedConnection::ActiveRecordExt
             @thread   = nil
           end
 
-          def run
+          def status
+            if @thread
+              @thread.alive? ? :running : :dead
+            else
+              :stopped
+            end
+          end
+
+          def restart
+            stop.start
+          end
+
+          def stop
+            @thread.kill if @thread.alive?
+            @thread = nil
+            self
+          end
+
+          def start
             return unless @interval > 0
 
             @thread ||= Thread.new(@pool, @interval) { |pool, interval|
@@ -60,6 +82,7 @@ module AdvancedConnection::ActiveRecordExt
                 end
               end
             }
+            self
           end
         end
       end
@@ -76,7 +99,7 @@ module AdvancedConnection::ActiveRecordExt
             Queues::FIFO.new
         end
 
-        @idle_manager = IdleManager.new(self, idle_check_interval).tap(&:run)
+        @idle_manager = IdleManager.new(self, idle_check_interval).tap(&:start)
       end
 
       def queue_type
