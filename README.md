@@ -6,7 +6,8 @@ AdvancedConnection is a rails (~> 4.1) plugin that provides advanced management 
   - Statement Pooling (**EXPERIMENTAL**)
 
 ### Version
-0.5.6
+
+[![Gem Version](https://badge.fury.io/rb/advanced_connection.svg)](https://badge.fury.io/rb/advanced_connection)
 
 ### Installation
 
