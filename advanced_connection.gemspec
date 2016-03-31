@@ -12,7 +12,7 @@ Gem::Specification.new do |spec|
   spec.homepage    = "https://github.com/finalsite/advanced_connection"
   spec.summary     = "Provides advanced connection options for rails connection pools"
   spec.description = "Adds idle connection management, statement pooling, and other advanced connection features"
-  spec.license     = "LGPL"
+  spec.license     = "MIT"
 
   spec.files = `git ls-files`.split($/)
   spec.test_files = spec.files.grep(%r{^(test|spec|features)/})

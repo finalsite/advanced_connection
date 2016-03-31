@@ -30,7 +30,6 @@ module AdvancedConnection
         autoload :Queues
         autoload :IdleManager
         autoload :StatementPooling
-        autoload :TransactionEncapsulation
         autoload :WithoutConnection
       end
     end
