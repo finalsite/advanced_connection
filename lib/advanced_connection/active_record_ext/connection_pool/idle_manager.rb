@@ -70,12 +70,12 @@ module AdvancedConnection::ActiveRecordExt
 
                 begin
                   start = Time.now
-                  pool.send(:idle_info, "beginning idle connection cleanup")
+                  pool.send(:idle_debug, "beginning idle connection cleanup")
                   pool.remove_idle_connections
-                  pool.send(:idle_info, "beginning idle connection warmup")
+                  pool.send(:idle_debug, "beginning idle connection warmup")
                   pool.create_idle_connections
                   finish = (Time.now - start).round(6)
-                  pool.send(:idle_info, "finished idle connection tasks in #{finish} seconds; next run in #{pool.max_idle_time} seconds")
+                  pool.send(:idle_debug, "finished idle connection tasks in #{finish} seconds; next run in #{pool.max_idle_time} seconds")
                 rescue => e
                   Rails.logger.error "#{e.class.name}: #{e.message}"
                   e.backtrace.each { |line| Rails.logger.error line }
