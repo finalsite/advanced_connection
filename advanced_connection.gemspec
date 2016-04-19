@@ -45,5 +45,6 @@ Gem::Specification.new do |spec|
 
   spec.add_development_dependency "guard-rspec", '~> 4.6.4'
   spec.add_development_dependency "coveralls",   '~> 0.8.13'
+  spec.add_development_dependency 'rabbitt-githooks', '~> 1.6.0'
   spec.add_development_dependency 'copyright-header', '~> 1.0.15'
 end
