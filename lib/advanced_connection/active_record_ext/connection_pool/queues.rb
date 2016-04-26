@@ -27,7 +27,7 @@ module AdvancedConnection::ActiveRecordExt
           synchronize { @queue.size }
         end
       end
-      FIFO = Queues
+      FIFO = Queues::Default
 
       class Stack < Default
         def remove

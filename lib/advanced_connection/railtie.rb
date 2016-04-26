@@ -27,7 +27,8 @@ module AdvancedConnection
       ActiveSupport.on_load(:before_initialize) do
         ActiveSupport.on_load(:active_record) {
           # load our intitializer ASAP so we can make use of user defined configuration
-          load Rails.root.join('config', 'initializers', 'advanced_connection.rb')
+          initializer = Rails.root.join('config', 'initializers', 'advanced_connection.rb')
+          load initializer if initializer.exist?
 
           # now override the settings with environment speicific ones
           AdvancedConnection.configure(true) do |ac_cfg|

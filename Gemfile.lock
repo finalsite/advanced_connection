@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    advanced_connection (0.5.11)
+    advanced_connection (0.5.12)
       activerecord (~> 4.1)
       activesupport (~> 4.1)
       rails (~> 4.1)
@@ -218,6 +218,3 @@ DEPENDENCIES
   rspec (~> 3.4.0)
   rspec-collection_matchers (~> 1.1.2)
   rspec-its (~> 1.2.0)
-
-BUNDLED WITH
-   1.11.2
