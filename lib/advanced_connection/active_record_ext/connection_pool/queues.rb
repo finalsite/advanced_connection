@@ -46,13 +46,13 @@ module AdvancedConnection::ActiveRecordExt
 
       class YoungAgeBiased < AgeSorted
         def remove
-          @queue.pop
+          @queue.shift
         end
       end
 
       class OldAgeBiased < AgeSorted
         def remove
-          @queue.shift
+          @queue.pop
         end
       end
     end

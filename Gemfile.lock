@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    advanced_connection (0.5.12)
+    advanced_connection (0.5.13)
       activerecord (~> 4.1)
       activesupport (~> 4.1)
       rails (~> 4.1)
@@ -46,11 +46,8 @@ GEM
       tzinfo (~> 1.1)
     arel (6.0.3)
     builder (3.2.2)
-    charlock_holmes (0.7.3)
     coderay (1.1.1)
     concurrent-ruby (1.0.1)
-    copyright-header (1.0.15)
-      github-linguist (~> 2.6)
     coveralls (0.8.13)
       json (~> 1.8)
       simplecov (~> 0.11.0)
@@ -60,15 +57,9 @@ GEM
     diff-lcs (1.2.5)
     docile (1.1.5)
     erubis (2.7.0)
-    escape_utils (1.0.1)
     ffi (1.9.10)
     ffi (1.9.10-java)
     formatador (0.2.5)
-    github-linguist (2.12.0)
-      charlock_holmes (~> 0.7.3)
-      escape_utils (~> 1.0.1)
-      mime-types (~> 1.19)
-      pygments.rb (~> 0.6.0)
     globalid (0.3.6)
       activesupport (>= 4.1.0)
     guard (2.13.0)
@@ -97,7 +88,9 @@ GEM
     mail (2.6.4)
       mime-types (>= 1.16, < 4)
     method_source (0.8.2)
-    mime-types (1.25.1)
+    mime-types (3.0)
+      mime-types-data (~> 3.2015)
+    mime-types-data (3.2016.0221)
     mini_portile2 (2.0.0)
     minitest (5.8.4)
     nenv (0.3.0)
@@ -107,7 +100,6 @@ GEM
       nenv (~> 0.1)
       shellany (~> 0.0)
     pg (0.18.4)
-    posix-spawn (0.3.11)
     pry (0.10.3)
       coderay (~> 1.1.0)
       method_source (~> 0.8.1)
@@ -119,9 +111,6 @@ GEM
       spoon (~> 0.0)
     pry-nav (0.2.4)
       pry (>= 0.9.10, < 0.11.0)
-    pygments.rb (0.6.3)
-      posix-spawn (~> 0.3.6)
-      yajl-ruby (~> 1.2.0)
     rabbitt-githooks (1.6.1)
       rainbow (~> 2.0.0)
       thor (~> 0.19.1)
@@ -198,7 +187,6 @@ GEM
     tins (1.6.0)
     tzinfo (1.2.2)
       thread_safe (~> 0.1)
-    yajl-ruby (1.2.1)
 
 PLATFORMS
   java
@@ -206,7 +194,6 @@ PLATFORMS
 
 DEPENDENCIES
   advanced_connection!
-  copyright-header (~> 1.0.15)
   coveralls (~> 0.8.13)
   guard-rspec (~> 4.6.4)
   pg (~> 0.18.4)

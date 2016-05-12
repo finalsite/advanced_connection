@@ -91,46 +91,6 @@ namespace :db do
   end
 end
 
-namespace :copyright do
-  namespace :headers do
-    desc 'add copyright headers'
-    task :add do
-      require 'copyright_header'
-
-      args = {
-        license:                        'MIT',
-        copyright_software:             'Advanced Connection',
-        copyright_software_description: "A Rails plugin providing an Idle Database Connection Manager",
-        copyright_holders:              ['Finalsite, LLC', 'Carl P. Corliss <carl.corliss@finalsite.com>'],
-        copyright_years:                ['2016'],
-        add_path:                       'lib',
-        output_dir:                     '.'
-      }
-
-      command_line = CopyrightHeader::CommandLine.new( args )
-      command_line.execute
-    end
-
-    desc 'remove copyright headers'
-    task :remove do
-      require 'copyright_header'
-
-      args = {
-        license:                        'MIT',
-        copyright_software:             'Advanced Connection',
-        copyright_software_description: "A Rails plugin providing an Idle Database Connection Manager",
-        copyright_holders:              ['Finalsite, LLC', 'Carl P. Corliss <carl.corliss@finalsite.com>'],
-        copyright_years:                ['2016'],
-        remove_path:                    'lib',
-        output_dir:                     '.'
-      }
-
-      command_line = CopyrightHeader::CommandLine.new( args )
-      command_line.execute
-    end
-  end
-end
-
 namespace :postgres do
   require 'active_record'
 

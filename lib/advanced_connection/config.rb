@@ -45,7 +45,7 @@ module AdvancedConnection
       min_idle_connections:           0,
       max_idle_connections:           ::Float::INFINITY,
       max_idle_time:                  0,
-      idle_check_interval:            0,
+      idle_check_interval:            nil,
       callbacks:                      ActiveSupport::OrderedOptions.new
     ).freeze unless defined? DEFAULT_CONFIG
 

@@ -44,5 +44,9 @@ module AdvancedConnection::ActiveRecordExt
     def instance_age
       (Time.now - @instantiated_at).to_f
     end
+
+    def idle_time
+      (in_use? ? 0.0 : Time.now - @last_checked_in).to_f
+    end
   end
 end

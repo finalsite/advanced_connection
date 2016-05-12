@@ -1,4 +1,4 @@
-#
+
 # Copyright (C) 2016 Finalsite, LLC
 # Copyright (C) 2016 Carl P. Corliss <carl.corliss@finalsite.com>
 #
@@ -32,13 +32,48 @@ module AdvancedConnection::ActiveRecordExt
 
         class IdleManager
           attr_accessor :interval
-          attr_reader :thread
+          attr_reader :thread, :logger
           private :thread
 
           def initialize(pool, interval)
             @pool     = pool
             @interval = interval.to_i
             @thread   = nil
+            @logger   = ActiveSupport::Logger.new(Rails.root.join('log', 'idle_manager.log'))
+            @logger.level = Rails.logger.level
+          end
+
+          def log_info(format, *args)
+            @logger.info(format("#{idle_stats} #{format}", *args))
+          end
+
+          def log_debug(format, *args)
+            @logger.debug(format("#{idle_stats} #{format}", *args))
+          end
+
+          def log_warn(format, *args)
+            @logger.debug(format("#{idle_stats} #{format}", *args))
+          end
+
+          def dump_stats
+            if (stats_dump = Rails.root.join('tmp', 'dump-idle-stats.txt')).exist?
+              log_info "Dumping statistics"
+              id_size = self.object_id.to_s.size
+              @logger.info(format("%3s: %#{id_size}s\t%9s\t%9s", 'IDX', 'OID', 'AGE', 'IDLE'))
+              @pool.idle_connections.each_with_index do |connection, index|
+                @logger.info(format("%3d: %#{id_size}d\t%9d\t%9d",
+                                    index, connection.object_id, connection.instance_age, connection.idle_time))
+              end
+              !!(stats_dump.unlink rescue true)
+            end
+          end
+
+          def idle_stats
+            stats = @pool.pool_statistics
+            format(
+              "[#{Time.now}] IdleManager (Actv:%d,Avail:%d,Idle:%d,Total:%d):",
+              stats.active, stats.available, stats.idle, stats.total,
+            )
           end
 
           def status
@@ -63,19 +98,23 @@ module AdvancedConnection::ActiveRecordExt
             return unless @interval > 0
 
             @thread ||= Thread.new(@pool, @interval) { |pool, interval|
-              pool.send(:idle_info, "starting idle manager; running every #{interval} seconds")
+              log_info("starting idle manager; running every #{interval} seconds")
 
               loop do
                 sleep interval
 
                 begin
                   start = Time.now
-                  pool.send(:idle_debug, "beginning idle connection cleanup")
+                  dump_stats
+
+                  log_debug("beginning idle connection cleanup")
                   pool.remove_idle_connections
-                  pool.send(:idle_debug, "beginning idle connection warmup")
+
+                  log_debug("beginning idle connection warmup")
                   pool.create_idle_connections
+
                   finish = (Time.now - start).round(6)
-                  pool.send(:idle_debug, "finished idle connection tasks in #{finish} seconds; next run in #{pool.max_idle_time} seconds")
+                  log_info("finished idle connection tasks in #{finish} seconds; next run in #{interval} seconds")
                 rescue => e
                   Rails.logger.error "#{e.class.name}: #{e.message}"
                   e.backtrace.each { |line| Rails.logger.error line }
@@ -94,6 +133,7 @@ module AdvancedConnection::ActiveRecordExt
           when :prefer_older   then Queues::OldAgeBiased.new
           when :prefer_younger then Queues::YoungAgeBiased.new
           when :lifo, :stack   then Queues::Stack.new
+          when :fifo, :queue   then Queues::FIFO.new
           else
             Rails.logger.warn "Unknown queue_type #{queue_type.inspect} - using standard FIFO instead"
             Queues::FIFO.new
@@ -151,7 +191,7 @@ module AdvancedConnection::ActiveRecordExt
 
       def checkin_with_last_checked_in(conn)
         conn.last_checked_in = Time.now
-        idle_debug "checking in connection #{conn.object_id} at #{conn.last_checked_in}"
+        idle_manager.debug "checking in connection #{conn.object_id} at #{conn.last_checked_in}"
         checkin_without_last_checked_in(conn)
       end
 
@@ -213,7 +253,7 @@ module AdvancedConnection::ActiveRecordExt
 
         return unless slots >= count
 
-        idle_info "Warming up #{count} connection#{count > 1 ? 's' : ''}"
+        idle_manager.log_info "Warming up #{count} connection#{count > 1 ? 's' : ''}"
         synchronize do
           count.times {
             conn = checkout_new_connection
@@ -242,27 +282,36 @@ module AdvancedConnection::ActiveRecordExt
 
       def remove_idle_connections
         # don't attempt to remove idle connections if we have threads waiting
-        return if @available.num_waiting > 0
+        if @available.num_waiting > 0
+          idle_manager.log_warn "Cannot reap while threads actively waiting on db connections"
+          return
+        end
 
         idle_conns = idle_connections
         idle_count = idle_conns.size
 
-        return unless idle_count > max_idle_connections
+        unless idle_count > max_idle_connections
+          idle_manager.log_warn "idle count (#{idle_count}) does not exceed max idle connections (#{max_idle_connections}); skipping reap."
+          return
+        end
 
         cull_count = (idle_count - max_idle_connections)
 
         culled = 0
         idle_conns.each_with_index do |conn, idx|
-          last_ci = (Time.now - conn.last_checked_in).to_f
           if idx < cull_count
-            culled += remove_connection(conn) ? 1 : 0
-            idle_info "culled connection ##{idx} id##{conn.object_id} - age:#{conn.instance_age} last_checkin:#{last_ci}"
+            if remove_connection(conn)
+              culled += 1
+              idle_manager.log_info "culled connection ##{idx} id##{conn.object_id} - age:#{conn.instance_age.to_i} idle_time:#{conn.idle_time.to_i}"
+            else
+              idle_manager.log_info "kept connection ##{idx} id##{conn.object_id} - age:#{conn.instance_age.to_i} idle_time:#{conn.idle_time.to_i}"
+            end
           else
-            idle_info "kept connection ##{idx} id##{conn.object_id} - age:#{conn.instance_age} last_checkin:#{last_ci}"
+            idle_manager.log_info "kept connection ##{idx} id##{conn.object_id} - age:#{conn.instance_age.to_i} idle_time:#{conn.idle_time.to_i}"
           end
         end
 
-        idle_info "culled %d connections" % culled
+        idle_manager.log_info "culled %d connections" % culled
       end
 
     private
@@ -274,23 +323,6 @@ module AdvancedConnection::ActiveRecordExt
           conn.disconnect!
         end
         true
-      end
-
-      def idle_message(format, *args)
-        stats = pool_statistics
-        format(
-          "IdleManager (Actv:%d,Avail:%d,Idle:%d,Total:%d): #{format}",
-          stats.active, stats.available, stats.idle, stats.total,
-          *args
-        )
-      end
-
-      def idle_debug(format, *args)
-        Rails.logger.debug idle_message(format, *args)
-      end
-
-      def idle_info(format, *args)
-        Rails.logger.info idle_message(format, *args)
       end
     end
   end
