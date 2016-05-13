@@ -48,5 +48,31 @@ module AdvancedConnection::ActiveRecordExt
     def idle_time
       (in_use? ? 0.0 : Time.now - @last_checked_in).to_f
     end
+
+    def idle?
+      idle_time > pool.max_idle_time
+    end
+
+    def <=>(other)
+      case pool.queue_type
+        when :prefer_younger then
+          # when prefering younger, we sort oldest->youngest
+          # this ensures that older connections will be culled
+          # during #remove_idle_connections()
+          -(instance_age <=> other.instance_age)
+        when :prefer_older then
+          # when prefering older, we sort youngest->oldest
+          # this ensures that younger connections will be culled
+          # during #remove_idle_connections()
+          (instance_age <=> other.instance_age)
+        else
+          # with fifo / lifo queues, we only care about the
+          # last time a given connection was used (inferred
+          # by when it was last checked into the pool).
+          # This ensures that the longer idling connections
+          # will be culled.
+          -(last_checked_in <=> other.last_checked_in)
+      end
+    end
   end
 end

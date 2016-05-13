@@ -142,6 +142,10 @@ module AdvancedConnection::ActiveRecordExt
         @idle_manager = IdleManager.new(self, idle_check_interval).tap(&:start)
       end
 
+      #
+      ## SETINGS
+      #
+
       def queue_type
         @queue_type ||= spec.config.fetch(:queue_type,
                                           AdvancedConnection.connection_pool_queue_type).to_s.downcase.to_sym
@@ -191,74 +195,27 @@ module AdvancedConnection::ActiveRecordExt
 
       def checkin_with_last_checked_in(conn)
         conn.last_checked_in = Time.now
-        idle_manager.debug "checking in connection #{conn.object_id} at #{conn.last_checked_in}"
+        idle_manager.log_debug "checking in connection #{conn.object_id} at #{conn.last_checked_in}"
         checkin_without_last_checked_in(conn)
       end
 
-      def active_connections
-        @connections.select(&:in_use?)
-      end
-
-      def available_connections
-        @connections.reject(&:in_use?)
-      end
-
       def idle_connections
-        available_connections.select do |conn|
-          (Time.now - conn.last_checked_in).to_f > max_idle_time
-        end.sort { |a, b|
-          case queue_type
-            when :prefer_younger then
-              # when prefering younger, we sort oldest->youngest
-              # this ensures that older connections will be culled
-              # during #remove_idle_connections()
-              -(a.instance_age <=> b.instance_age)
-            when :prefer_older then
-              # when prefering older, we sort youngest->oldest
-              # this ensures that younger connections will be culled
-              # during #remove_idle_connections()
-              (a.instance_age <=> b.instance_age)
-            else
-              # with fifo / lifo queues, we only care about the
-              # last time a given connection was used (inferred
-              # by when it was last checked into the pool).
-              # This ensures that the longer idling connections
-              # will be culled.
-              -(a.last_checked_in <=> b.last_checked_in)
-          end
-        }
+        synchronize { @connections.select(&:idle?).sort }
       end
 
       def pool_statistics
-        idle = active = available = 0
         synchronize do
-          idle      = idle_connections.size
-          active    = active_connections.size
-          available = available_connections.size
-        end
-        total = active + available
+          total     = @connections.size
+          idle      = @connections.count(&:idle?)
+          active    = @connections.count(&:in_use?)
+          available = total - active
 
-        ActiveSupport::OrderedOptions.new.merge(
-          total:     total,
-          idle:      idle,
-          active:    active,
-          available: available
-        )
-      end
-
-      def warmup_connections(count = nil)
-        count ||= warmup_connection_count
-        slots = connection_limit - @connections.size
-        count = slots if slots < count
-
-        return unless slots >= count
-
-        idle_manager.log_info "Warming up #{count} connection#{count > 1 ? 's' : ''}"
-        synchronize do
-          count.times {
-            conn = checkout_new_connection
-            @available.add conn
-          }
+          ActiveSupport::OrderedOptions.new.merge(
+            total:     total,
+            idle:      idle,
+            active:    active,
+            available: available
+          )
         end
       end
 
@@ -278,6 +235,22 @@ module AdvancedConnection::ActiveRecordExt
         create_count = open_slots if create_count > open_slots
 
         warmup_connections(create_count)
+      end
+
+      def warmup_connections(count = nil)
+        count ||= warmup_connection_count
+        slots = connection_limit - @connections.size
+        count = slots if slots < count
+
+        return unless slots >= count
+
+        idle_manager.log_info "Warming up #{count} connection#{count > 1 ? 's' : ''}"
+        synchronize do
+          count.times {
+            conn = checkout_new_connection
+            @available.add conn
+          }
+        end
       end
 
       def remove_idle_connections
