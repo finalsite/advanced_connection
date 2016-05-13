@@ -143,10 +143,6 @@ module AdvancedConnection::ActiveRecordExt
         @idle_manager = IdleManager.new(self, idle_check_interval).tap(&:start)
       end
 
-      #
-      ## SETINGS
-      #
-
       def queue_type
         @queue_type ||= spec.config.fetch(:queue_type,
                                           AdvancedConnection.connection_pool_queue_type).to_s.downcase.to_sym
