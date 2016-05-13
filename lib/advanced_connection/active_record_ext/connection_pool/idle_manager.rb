@@ -56,23 +56,24 @@ module AdvancedConnection::ActiveRecordExt
           end
 
           def dump_stats
-            if (stats_dump = Rails.root.join('tmp', 'dump-idle-stats.txt')).exist?
-              log_info "Dumping statistics"
-              id_size = self.object_id.to_s.size
-              @logger.info(format("%3s: %#{id_size}s\t%9s\t%9s", 'IDX', 'OID', 'AGE', 'IDLE'))
-              @pool.idle_connections.each_with_index do |connection, index|
-                @logger.info(format("%3d: %#{id_size}d\t%9d\t%9d",
-                                    index, connection.object_id, connection.instance_age, connection.idle_time))
-              end
-              !!(stats_dump.unlink rescue true)
+            stats_dump = Rails.root.join('tmp', 'dump-idle-stats.txt')
+            return false unless stats_dump.exist?
+
+            log_info "Dumping statistics"
+            id_size = object_id.to_s.size
+            @logger.info(format("%3s: %#{id_size}s\t%9s\t%9s", 'IDX', 'OID', 'AGE', 'IDLE'))
+            @pool.idle_connections.each_with_index do |connection, index|
+              @logger.info(format("%3d: %#{id_size}d\t%9d\t%9d",
+                                  index, connection.object_id, connection.instance_age, connection.idle_time))
             end
+            !!(stats_dump.unlink rescue true) # rubocop:disable Style/RescueModifier
           end
 
           def idle_stats
             stats = @pool.pool_statistics
             format(
               "[#{Time.now}] IdleManager (Actv:%d,Avail:%d,Idle:%d,Total:%d):",
-              stats.active, stats.available, stats.idle, stats.total,
+              stats.active, stats.available, stats.idle, stats.total
             )
           end
 
