@@ -23,5 +23,6 @@ module AdvancedConnection
   class Error < StandardError
     class ConfigError < Error; end
     class UnableToReleaseConnection < Error; end
+    class UnableToReaquireConnection < Error; end
   end
 end

@@ -1,4 +1,3 @@
-
 # Copyright (C) 2016 Finalsite, LLC
 # Copyright (C) 2016 Carl P. Corliss <carl.corliss@finalsite.com>
 #
@@ -32,96 +31,99 @@ module AdvancedConnection::ActiveRecordExt
 
         class IdleManager
           attr_accessor :interval
-          attr_reader :thread, :logger
-          private :thread
+          attr_reader :logger
 
           def initialize(pool, interval)
             @pool     = pool
             @interval = interval.to_i
-            @thread   = nil
             @logger   = ActiveSupport::Logger.new(Rails.root.join('log', 'idle_manager.log'))
-            @logger.level = Rails.logger.level
+
+            @logger.level = AdvancedConnection.idle_manager_log_level || ::Logger::INFO
           end
 
-          def log_info(format, *args)
-            @logger.info(format("#{idle_stats} #{format}", *args))
-          end
-
-          def log_debug(format, *args)
-            @logger.debug(format("#{idle_stats} #{format}", *args))
-          end
-
-          def log_warn(format, *args)
-            @logger.debug(format("#{idle_stats} #{format}", *args))
-          end
-
-          def dump_stats
-            stats_dump = Rails.root.join('tmp', 'dump-idle-stats.txt')
-            return false unless stats_dump.exist?
-
-            log_info "Dumping statistics"
-            id_size = object_id.to_s.size
-            @logger.info(format("%3s: %#{id_size}s\t%9s\t%9s", 'IDX', 'OID', 'AGE', 'IDLE'))
-            @pool.idle_connections.each_with_index do |connection, index|
-              @logger.info(format("%3d: %#{id_size}d\t%9d\t%9d",
-                                  index, connection.object_id, connection.instance_age, connection.idle_time))
+          %w[debug info warn error].each do |level|
+            define_method("log_#{level}") do |fmt, *args|
+              @logger.send(level, format("[#{Time.now}] #{idle_stats} #{level.upcase}: #{fmt}", *args))
             end
+          end
+
+          def reserved_connections
+            reserved = @pool.instance_variable_get(:@reserved_connections).dup
+            Hash[reserved.keys.zip(reserved.values)]
+          end
+
+          def dump_connections
+            return unless (stats_dump = Rails.root.join('tmp', 'dump-connections.txt')).exist?
+
+            log_info "Dumping connections"
+
+            id_size = object_id.to_s.size
+            @logger.info(format("%3s: %#{id_size}s\t%9s\t%9s\t%4s\t%s", 'IDX', 'OID', 'AGE', 'IDLE', 'ACTV', 'OWNER'))
+
+            @pool.connections.dup.each_with_index do |connection, index|
+              if connection.in_use?
+                thread_id    = reserved_connections.index(connection) || 0
+                thread_hexid = "0x" << (thread_id << 1).to_s(16)
+              end
+
+              @logger.info(format("%3d: %#{id_size}d\t%9d\t%9d\t%4s\t%s",
+                                  index, connection.object_id,
+                                  connection.instance_age, connection.idle_time,
+                                  connection.in_use?.to_s, thread_hexid))
+            end
+
             !!(stats_dump.unlink rescue true) # rubocop:disable Style/RescueModifier
           end
 
           def idle_stats
             stats = @pool.pool_statistics
-            format(
-              "[#{Time.now}] IdleManager (Actv:%d,Avail:%d,Idle:%d,Total:%d):",
-              stats.active, stats.available, stats.idle, stats.total
-            )
+            format("[Act: %d / Avail: %d (%d idle) / Total: %d]",
+                   stats.active, stats.available, stats.idle, stats.total)
           end
 
-          def status
-            if @thread
-              @thread.alive? ? :running : :dead
-            else
-              :stopped
+          def safe_timed_run(last_run = nil)
+            return unless block_given?
+
+            log_debug "last run was #{Time.now - last_run} seconds ago" if last_run
+
+            begin
+              start = Time.now
+              yield
+            rescue StandardError => e
+              log_error "#{e.class.name}: #{e.message}\n\t#{e.backtrace.join("\n\t")}"
+            ensure
+              finish = ((last_run = Time.now) - start).round(6)
+              log_info("finished idle connection tasks in #{finish} seconds")
             end
+
+            last_run
           end
 
-          def restart
-            stop.start
-          end
-
-          def stop
-            @thread.kill if @thread.alive?
-            @thread = nil
-            self
-          end
-
-          def start
+          def run
             return unless @interval > 0
 
-            @thread ||= Thread.new(@pool, @interval) { |pool, interval|
-              log_info("starting idle manager; running every #{interval} seconds")
+            Thread.new(@pool, @interval) do |pool, interval|
+              Thread.current.name = self.class.name if Thread.current.respond_to? :name=
 
-              loop do
+              begin
+                pool.release_connection if pool.active_connection?
+              rescue StandardError => e
+                log_error "#{e.class.name}: #{e.message}\n\t#{e.backtrace.join("\n\t")}"
+              end
+
+              log_info("starting idle manager; running every #{interval} seconds")
+              last_run = nil
+
+              loop {
                 sleep interval
 
-                begin
-                  start = Time.now
-                  dump_stats
-
-                  log_debug("beginning idle connection cleanup")
+                last_run = safe_timed_run(last_run) do
+                  dump_connections
                   pool.remove_idle_connections
-
-                  log_debug("beginning idle connection warmup")
-                  pool.create_idle_connections
-
-                  finish = (Time.now - start).round(6)
-                  log_info("finished idle connection tasks in #{finish} seconds; next run in #{interval} seconds")
-                rescue => e
-                  Rails.logger.error "#{e.class.name}: #{e.message}"
-                  e.backtrace.each { |line| Rails.logger.error line }
                 end
-              end
-            }
+              }
+            end
+
             self
           end
         end
@@ -140,7 +142,7 @@ module AdvancedConnection::ActiveRecordExt
             Queues::FIFO.new
         end
 
-        @idle_manager = IdleManager.new(self, idle_check_interval).tap(&:start)
+        @idle_manager = IdleManager.new(self, idle_check_interval).tap(&:run)
       end
 
       #
@@ -148,33 +150,15 @@ module AdvancedConnection::ActiveRecordExt
       #
 
       def queue_type
-        @queue_type ||= spec.config.fetch(:queue_type,
-                                          AdvancedConnection.connection_pool_queue_type).to_s.downcase.to_sym
-      end
-
-      def warmup_connection_count
-        @warmup_connection_count ||= begin
-          conns = spec.config[:warmup_connections] || AdvancedConnection.warmup_connections
-          conns.to_i > connection_limit ? connection_limit : conns.to_i
-        end
-      end
-
-      def max_idle_time
-        @max_idle_time ||= (spec.config[:max_idle_time] || \
-                           AdvancedConnection.max_idle_time).to_i
-      end
-
-      def idle_check_interval
-        @idle_check_interval ||= (spec.config[:idle_check_interval] || \
-                                 AdvancedConnection.idle_check_interval || \
-                                 max_idle_time).to_i
+        @queue_type ||= spec.config.fetch(
+          :queue_type, AdvancedConnection.connection_pool_queue_type
+        ).to_s.downcase.to_sym
       end
 
       def max_idle_connections
         @max_idle_connections ||= begin
           begin
-            (spec.config[:max_idle_connections] || \
-              AdvancedConnection.max_idle_connections).to_i
+            spec.config.fetch(:max_idle_connections, AdvancedConnection.max_idle_connections).to_i
           rescue FloatDomainError => e
             raise unless e.message =~ /infinity/i
             ::Float::INFINITY
@@ -182,120 +166,84 @@ module AdvancedConnection::ActiveRecordExt
         end
       end
 
-      def min_idle_connections
-        @min_idle_connections ||= begin
-          min_idle = (spec.config[:min_idle_connections] || AdvancedConnection.min_idle_connections).to_i
-          min_idle = (min_idle > 0 ? min_idle : 0)
-          min_idle <= max_idle_connections ? min_idle : max_idle_connections
+      def max_idle_time
+        @max_idle_time ||= begin
+          spec.config.fetch(:max_idle_time, AdvancedConnection.max_idle_time).to_i
         end
       end
 
-      def connection_limit
-        @size
+      def idle_check_interval
+        @idle_check_interval ||= begin
+          spec.config[:idle_check_interval]  || \
+          AdvancedConnection.idle_check_interval || \
+          max_idle_time
+        end.to_i
       end
 
       def checkin_with_last_checked_in(conn)
-        conn.last_checked_in = Time.now
-        idle_manager.log_debug "checking in connection #{conn.object_id} at #{conn.last_checked_in}"
-        checkin_without_last_checked_in(conn)
-      end
-
-      def idle_connections
-        synchronize { @connections.select(&:idle?).sort }
+        begin
+          if conn.last_checked_out
+            previous_checkin, conn.last_checked_in = conn.last_checked_in, Time.now
+            idle_manager.log_debug "checking in connection %s at %s (checked out for %.3f seconds)",
+                                   conn.object_id, conn.last_checked_in,
+                                   (conn.last_checked_in - conn.last_checked_out).to_f.round(6)
+          else
+            idle_manager.log_debug "checking in connection #{conn.object_id}"
+          end
+        ensure
+          checkin_without_last_checked_in(conn)
+        end
       end
 
       def pool_statistics
-        synchronize do
-          total     = @connections.size
-          idle      = @connections.count(&:idle?)
-          active    = @connections.count(&:in_use?)
-          available = total - active
-
-          ActiveSupport::OrderedOptions.new.merge(
-            total:     total,
-            idle:      idle,
-            active:    active,
-            available: available
-          )
-        end
+        ActiveSupport::OrderedOptions.new.merge(
+          total:     (total  = @connections.size),
+          idle:      (idle   = @connections.count(&:idle?)),
+          active:    (active = @connections.count(&:in_use?)),
+          available: (total - active)
+        )
       end
 
-      def create_idle_connections
-        idle_count = idle_connections.size
-        open_slots = connection_limit - @connections.size
-
-        # if we already have enough idle connections, do nothing
-        return unless idle_count < min_idle_connections
-
-        # if we don't have enough available slots (i.e., current pool size
-        # is greater than max pool size) then do nothing
-        return unless open_slots > 0
-
-        # otherwise, spin up connections up to our min_idle_connections setting
-        create_count = min_idle_connections - idle_count
-        create_count = open_slots if create_count > open_slots
-
-        warmup_connections(create_count)
-      end
-
-      def warmup_connections(count = nil)
-        count ||= warmup_connection_count
-        slots = connection_limit - @connections.size
-        count = slots if slots < count
-
-        return unless slots >= count
-
-        idle_manager.log_info "Warming up #{count} connection#{count > 1 ? 's' : ''}"
-        synchronize do
-          count.times {
-            conn = checkout_new_connection
-            @available.add conn
-          }
-        end
+      def idle_connections
+        @connections.select(&:idle?).sort
       end
 
       def remove_idle_connections
         # don't attempt to remove idle connections if we have threads waiting
         if @available.num_waiting > 0
-          idle_manager.log_warn "Cannot reap while threads actively waiting on db connections"
+          idle_manager.log_warn "Skipping reap while #{@available.num_waiting} thread(s) are actively waiting on database connections..."
           return
         end
 
-        idle_conns = idle_connections
-        idle_count = idle_conns.size
+        return unless (candidates = idle_connections.size - max_idle_connections) > 0
+        idle_manager.log_info "attempting to reap #{candidates} candidate connections"
 
-        unless idle_count > max_idle_connections
-          idle_manager.log_warn "idle count (#{idle_count}) does not exceed max idle connections (#{max_idle_connections}); skipping reap."
-          return
-        end
+        reaped = 0
 
-        cull_count = (idle_count - max_idle_connections)
-
-        culled = 0
-        idle_conns.each_with_index do |conn, idx|
-          if idx < cull_count
+        synchronize do
+          idle_connections[0...candidates].each_with_index { |conn, idx|
             if remove_connection(conn)
-              culled += 1
-              idle_manager.log_info "culled connection ##{idx} id##{conn.object_id} - age:#{conn.instance_age.to_i} idle_time:#{conn.idle_time.to_i}"
+              reaped += 1
+              idle_manager.log_info "reaped candidate connection #%d id#%d age:%d idle:%d" % [
+                idx, conn.object_id, conn.instance_age.to_i, conn.idle_time.to_i
+              ]
             else
-              idle_manager.log_info "kept connection ##{idx} id##{conn.object_id} - age:#{conn.instance_age.to_i} idle_time:#{conn.idle_time.to_i}"
+              idle_manager.log_info "kept candidate connection #%d id#%d age:%d idle:%d" % [
+                idx, conn.object_id, conn.instance_age.to_i, conn.idle_time.to_i
+              ]
             end
-          else
-            idle_manager.log_info "kept connection ##{idx} id##{conn.object_id} - age:#{conn.instance_age.to_i} idle_time:#{conn.idle_time.to_i}"
-          end
+          }
         end
 
-        idle_manager.log_info "culled %d connections" % culled
+        idle_manager.log_info "reaped #{reaped} of #{candidates} candidate connections"
       end
 
     private
 
       def remove_connection(conn)
-        synchronize do
-          return false if conn.in_use?
-          remove conn
-          conn.disconnect!
-        end
+        return false if conn.in_use?
+
+        remove(conn.tap { |c| c.disconnect! })
         true
       end
     end

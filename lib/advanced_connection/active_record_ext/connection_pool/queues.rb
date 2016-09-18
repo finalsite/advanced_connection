@@ -38,6 +38,7 @@ module AdvancedConnection::ActiveRecordExt
       class AgeSorted < Default
         def poll(timeout = nil)
           synchronize do
+            # always sort age based queues from youngest to oldest
             @queue.sort_by!(&:instance_age)
             no_wait_poll || (timeout && wait_poll(timeout))
           end
@@ -46,12 +47,16 @@ module AdvancedConnection::ActiveRecordExt
 
       class YoungAgeBiased < AgeSorted
         def remove
+          # Think of this like a stack, sorted youngest to oldest, bottom to top. To to
+          # aquire the youngest entry, we shift it off the bottom (i.e., the first element)
           @queue.shift
         end
       end
 
       class OldAgeBiased < AgeSorted
         def remove
+          # Think of this like a stack, sorted youngest to oldest, bottom to top. To to
+          # aquire the oldest entry, we pop it off the top (i.e., the last element)
           @queue.pop
         end
       end

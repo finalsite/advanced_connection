@@ -41,12 +41,6 @@ module AdvancedConnection
           ActiveRecord::Base.send(:include, AdvancedConnection::ActiveRecordExt)
         }
       end
-
-      config.after_initialize do
-        if AdvancedConnection.enable_idle_connection_manager && AdvancedConnection.warmup_connections
-          ActiveRecord::Base.connection_handler.connection_pool_list.each(&:warmup_connections)
-        end
-      end
     end
   end
 end
