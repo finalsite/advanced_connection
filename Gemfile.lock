@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    advanced_connection (0.5.14)
+    advanced_connection (0.6.0)
       activerecord (~> 4.1)
       activesupport (~> 4.1)
       rails (~> 4.1)
