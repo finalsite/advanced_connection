@@ -38,21 +38,12 @@ module AdvancedConnection
       end
 
       ActiveRecord::ConnectionAdapters::ConnectionPool.instance_exec do
-        if AdvancedConnection.enable_idle_connection_manager
-          include ConnectionPool::IdleManager
-        end
-
-        if AdvancedConnection.enable_statement_pooling
-          include ConnectionPool::StatementPooling
-        elsif AdvancedConnection.enable_without_connection
-          include ConnectionPool::WithoutConnection
-        end
+        include ConnectionPool::IdleManager if AdvancedConnection.enable_idle_connection_manager
+        include ConnectionPool::WithoutConnection
       end
 
       ActiveRecord::Base.instance_exec do
-        if AdvancedConnection.enable_without_connection
-          extend ActiveRecordExt::WithoutConnection unless AdvancedConnection.enable_statement_pooling
-        end
+        extend ActiveRecordExt::WithoutConnection
       end
     end
   end

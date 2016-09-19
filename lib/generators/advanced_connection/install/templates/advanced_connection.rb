@@ -6,42 +6,33 @@ AdvancedConnection.configure do |config|
   ## Idle Manager
   #
   # Enabling this will enable idle connection management. This allows you to specify settings
-  # to enable automatic warmup of connections on rails startup, min/max idle connections and
-  # idle connection culling.
+  # to enable the automatic reaping of idle database connections.
+  #
   # config.enable_idle_connection_manager = <%= AdvancedConnection::Config::DEFAULT_CONFIG.enable_idle_connection_manager.inspect %>
 
   # Pool queue type determines both how free connections will be checkout out
-  # of the pool, as well as how idle connections will be culled. The options are:
+  # of the pool, as well as how idle connections will be reaped. The options are:
   #
-  #  :fifo           - All connections will have an equal opportunity to be used and culled (default)
+  #  :fifo           - All connections will have an equal opportunity to be used and reaped (default)
   #  :lifo/:stack    - More frequently used connections will be reused, leaving less frequently used
-  #                    connections to be culled
+  #                    connections to be reaped
   #  :prefer_older   - Longer lived connections will tend to stick around longer, with younger
-  #                    connections being culled
+  #                    connections being reaped
   #  :prefer_younger - Younger lived connections will tend to stick around longer, with older
-  #                    connections being culled
+  #                    connections being reaped
   #
   # config.connection_pool_queue_type     = <%= AdvancedConnection::Config::DEFAULT_CONFIG.connection_pool_queue_type.inspect %>
 
-  # How many connections to prestart on initial startup of rails. This can
-  # help to reduce the time it takes a restarted production node to start
-  # responding again.
-  #
-  # config.warmup_connections             = <%= AdvancedConnection::Config::DEFAULT_CONFIG.warmup_connections.inspect %>
+  # What log level to log idle manager stats and details at (see ::Logger#level)
+  # config.idle_manager_log_level = ::Logger::INFO
 
-  # Minimum number of connection to keep idle. If, during the idle check, you have fewer
-  # than this many connections idle, then a number of new connections will be created
-  # up to this this number.
-  #
-  # config.min_idle_connections           = <%= AdvancedConnection::Config::DEFAULT_CONFIG.min_idle_connections.inspect %>
-
-  # Maximum number of connections that can remain idle without being culled. If you have
+  # Maximum number of connections that can remain idle without being reaped. If you have
   # more idle conections than this, only the difference between the total idle and this
-  # maximum will be culled.
+  # maximum will be reaped.
   #
   # config.max_idle_connections           = ::Float::INFINITY
 
-  # How long (in seconds) a connection can remain idle before being culled
+  # How long (in seconds) a connection can remain idle before being reaped
   #
   # config.max_idle_time                  = 90
 

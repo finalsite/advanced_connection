@@ -21,10 +21,12 @@
 #
 require 'singleton'
 require 'monitor'
+require 'logger'
 
 module AdvancedConnection
   class Config
     include Singleton
+    include MonitorMixin
 
     VALID_QUEUE_TYPES = [
       :fifo, :lifo, :stack, :prefer_younger, :prefer_older
@@ -37,12 +39,13 @@ module AdvancedConnection
     ).freeze unless defined? CALLBACK_TYPES
 
     DEFAULT_CONFIG = ActiveSupport::OrderedOptions.new.merge(
+      idle_manager_log_level:         ::Logger::INFO,
       enable_without_connection:      false,
       enable_statement_pooling:       false,
       enable_idle_connection_manager: false,
       connection_pool_queue_type:     :fifo,
-      warmup_connections:             false,
-      min_idle_connections:           0,
+      warmup_connections:             nil,
+      min_idle_connections:           nil,
       max_idle_connections:           ::Float::INFINITY,
       max_idle_time:                  0,
       idle_check_interval:            nil,
@@ -140,6 +143,21 @@ module AdvancedConnection
       @config.callbacks
     end
 
+    def idle_manager_log_level
+      @config[:log_level]
+    end
+
+    def idle_manager_log_level=(level)
+      @config[:log_level] = case level
+        when :debug, /debug/i, ::Logger::DEBUG then ::Logger::DEBUG
+        when :info,  /info/i,  ::Logger::INFO  then ::Logger::INFO
+        when :warn,  /warn/i,  ::Logger::WARN  then ::Logger::WARN
+        when :error, /error/i, ::Logger::ERROR then ::Logger::ERROR
+        when :fatal, /fatal/i, ::Logger::FATAL then ::Logger::FATAL
+        else ::Logger::INFO
+      end
+    end
+
     def enable_without_connection
       @config[:enable_without_connection]
     end
@@ -171,28 +189,21 @@ module AdvancedConnection
     end
 
     def warmup_connections
-      @config[:warmup_connections]
+      # deprecated and not used
+      0
     end
 
     def warmup_connections=(value)
-      unless !!value || value.is_a?(Fixnum) || value =~ /^\d+$/
-        fail Error::ConfigError, 'Expected warmup_connections to be nil, false ' \
-                           "or a valid positive integer, but found `#{value.inspect}`"
-      end
-
-      synchronize { @config[:warmup_connections] = value.to_s =~ /^\d+$/ ? value.to_i : false }
+      # deprecated and not used
     end
 
     def min_idle_connections
-      @config[:min_idle_connections]
+      # deprecated and not used
+      0
     end
 
     def min_idle_connections=(value)
-      unless value.is_a?(Numeric) || value =~ /^\d+$/
-        fail Error::ConfigError, 'Expected min_idle_connections to be ' \
-                           "a valid integer value, but found `#{value.inspect}`"
-      end
-      synchronize { @config[:min_idle_connections] = value.to_i }
+      # deprecated and not used
     end
 
     def max_idle_connections

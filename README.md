@@ -34,8 +34,7 @@ bundle exec rails generate advanced_connection:install
 #### Idle Connection Manager
 
 Enabling this will enable idle connection management. This allows you to specify settings
-to enable automatic warmup of connections on rails startup, min/max idle connections and
-idle connection culling.
+to enable automatic idle connection reaping.
 
 ```text
   enable_idle_connection_manager = true | false
@@ -59,16 +58,6 @@ Pool queue type determines both how free connections will be checkout out of the
 
 ```text
   connection_pool_queue_type = :fifo | :lifo | :stack | :prefer_older | :prefer_younger
-```
-
-How many connections to prestart on initial startup of rails. This can help to reduce the time it takes a restarted production node to start responding again.
-```text
-  warmup_connections = integer | false
-```
-
-Minimum number of connection to keep idle. If, during the idle check, you have fewer than this many connections idle, then a number of new connections will be created up to this this number.
-```text
-  min_idle_connections = integer
 ```
 
 Maximum number of connections that can remain idle without being culled. If you have

@@ -24,6 +24,8 @@ module AdvancedConnection::ActiveRecordExt
     module WithoutConnection
       extend ActiveSupport::Concern
 
+      MAX_REAQUIRE_ATTEMPTS = 3
+
       included do
         include ::ActiveSupport::Callbacks
         alias_method :retrieve_connection, :connection
@@ -34,19 +36,25 @@ module AdvancedConnection::ActiveRecordExt
         set_callback :without_connection, :after, :after_without_connection
       end
 
-      def without_connection
+      def without_connection(&block)
         return unless block_given?
+
+        # if we're not enabled just execute the block and return
+        return block.call unless AdvancedConnection.enable_without_connection
+
+        # if we have a transaction open, we can't release the database connection
+        # or Bad Things (tm) happen - so we just execute our block and return
+        if transaction_open?
+          Rails.logger.warn "WithoutConnection skipped due to open transaction."
+          return block.call
+        end
 
         if AdvancedConnection.callbacks.without_connection.present?
           run_callbacks(:without_connection) do
-            __without_connection do
-              yield
-            end
+            __without_connection { block.call }
           end
         else
-          __without_connection do
-            yield
-          end
+          __without_connection { block.call }
         end
       end
 
@@ -58,15 +66,19 @@ module AdvancedConnection::ActiveRecordExt
         raise Error::UnableToReleaseConnection if active_connection?
         yield
       ensure
-        tries = 3
+        attempt = 0
         begin
           # attempt to retrieve another connection
           retrieve_connection
         rescue ActiveRecord::ConnectionTimeoutError
-          Rails.logger.info "Failed to acquire a connection (#{Thread.current.object_id}) trying #{tries > 1 ? "#{tries} more times" : 'once more'}"
-          retry unless (tries -= 1) < 0
-          Rails.logger.info "Giving up on trying to acquire another connection"
-          raise
+          if attempt >= MAX_REAQUIRE_ATTEMPTS
+            Rails.logger.info "Giving up on trying to reacquire database connection"
+            raise Error::UnableToReaquireConnection
+          else
+            Rails.logger.warn "Failed to reaquire database connection - reattempt #{attempt += 1}/#{MAX_REAQUIRE_ATTEMPTS} ..."
+          end
+
+          retry
         end
       end
 

@@ -31,14 +31,23 @@ module AdvancedConnection::ActiveRecordExt
     end
 
     included do
-      attr_accessor :last_checked_in, :instantiated_at
+      attr_accessor :last_checked_in, :last_checked_out, :instantiated_at
       alias_method_chain :initialize, :advanced_connection
+      alias_method_chain :lease, :advanced_connection
     end
 
     def initialize_with_advanced_connection(*args, &block)
-      @last_checked_in = Time.now - 1.year
-      @instantiated_at = Time.now
+      @instantiated_at  = Time.now
+      @last_checked_in  = @instantiated_at
+      @last_checked_out = false
       initialize_without_advanced_connection(*args, &block)
+    end
+
+    def lease_with_advanced_connection
+      synchronize {
+        @last_checked_out = Time.now
+        lease_without_advanced_connection
+      }
     end
 
     def instance_age
@@ -57,20 +66,20 @@ module AdvancedConnection::ActiveRecordExt
       case pool.queue_type
         when :prefer_younger then
           # when prefering younger, we sort oldest->youngest
-          # this ensures that older connections will be culled
+          # to ensure that older connections will be reaped
           # during #remove_idle_connections()
           -(instance_age <=> other.instance_age)
         when :prefer_older then
-          # when prefering older, we sort youngest->oldest
-          # this ensures that younger connections will be culled
+          # when prefering older, we sort youngest->oldest to
+          # ensure that younger connections will be reaped
           # during #remove_idle_connections()
           (instance_age <=> other.instance_age)
         else
-          # with fifo / lifo queues, we only care about the
+          # With fifo / lifo queues, we only care about the
           # last time a given connection was used (inferred
           # by when it was last checked into the pool).
           # This ensures that the longer idling connections
-          # will be culled.
+          # will be reaped.
           -(last_checked_in <=> other.last_checked_in)
       end
     end
